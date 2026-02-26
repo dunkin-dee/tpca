@@ -1,0 +1,80 @@
+{"ts": "2026-02-26T12:03:03.480459", "level": "INFO", "event": "demo_start", "phase": "1"}
+
+{"ts": "2026-02-26T12:03:03.490932", "level": "INFO", "event": "directory_walk", "path": "C:\\Users\\dimad\\projects\\tpca\\tests\\fixtures\\sample_codebase", "files_found": 3}
+
+{"ts": "2026-02-26T12:03:03.492935", "level": "DEBUG", "event": "cache_set", "file": "C:\\Users\\dimad\\projects\\tpca\\tests\\fixtures\\sample_codebase\\auth.py", "symbol_count": 8}
+
+{"ts": "2026-02-26T12:03:03.493935", "level": "INFO", "event": "file_indexed", "file": "C:\\Users\\dimad\\projects\\tpca\\tests\\fixtures\\sample_codebase\\auth.py", "symbol_count": 8}
+
+{"ts": "2026-02-26T12:03:03.498705", "level": "DEBUG", "event": "cache_set", "file": "C:\\Users\\dimad\\projects\\tpca\\tests\\fixtures\\sample_codebase\\router.py", "symbol_count": 11}
+
+{"ts": "2026-02-26T12:03:03.499078", "level": "INFO", "event": "file_indexed", "file": "C:\\Users\\dimad\\projects\\tpca\\tests\\fixtures\\sample_codebase\\router.py", "symbol_count": 11}
+
+{"ts": "2026-02-26T12:03:03.501083", "level": "DEBUG", "event": "cache_set", "file": "C:\\Users\\dimad\\projects\\tpca\\tests\\fixtures\\sample_codebase\\utils.py", "symbol_count": 5}
+
+{"ts": "2026-02-26T12:03:03.501083", "level": "INFO", "event": "file_indexed", "file": "C:\\Users\\dimad\\projects\\tpca\\tests\\fixtures\\sample_codebase\\utils.py", "symbol_count": 5}
+
+{"ts": "2026-02-26T12:03:03.501699", "level": "INFO", "event": "graph_nodes_added", "count": 24}
+
+{"ts": "2026-02-26T12:03:03.501699", "level": "DEBUG", "event": "edge_added", "type": "member_of", "source": "tests\\fixtures\\sample_codebase\\auth.py::BaseAuth.__init__", "target": "tests\\fixtures\\sample_codebase\\auth.py::BaseAuth"}
+
+{"ts": "2026-02-26T12:03:03.501699", "level": "DEBUG", "event": "edge_added", "type": "inherits", "source": "tests\\fixtures\\sample_codebase\\auth.py::Auth", "target": "tests\\fixtures\\sample_codebase\\auth.py::BaseAuth"}
+
+{"ts": "2026-02-26T12:03:03.501699", "level": "DEBUG", "event": "edge_added", "type": "member_of", "source": "tests\\fixtures\\sample_codebase\\auth.py::Auth.__init__", "target": "tests\\fixtures\\sample_codebase\\auth.py::Auth"}
+
+{"ts": "2026-02-26T12:03:03.501699", "level": "DEBUG", "event": "edge_added", "type": "member_of", "source": "tests\\fixtures\\sample_codebase\\auth.py::Auth.validate_token", "target": "tests\\fixtures\\sample_codebase\\auth.py::Auth"}
+
+{"ts": "2026-02-26T12:03:03.501699", "level": "DEBUG", "event": "edge_added", "type": "member_of", "source": "tests\\fixtures\\sample_codebase\\auth.py::Auth.refresh_token", "target": "tests\\fixtures\\sample_codebase\\auth.py::Auth"}
+
+{"ts": "2026-02-26T12:03:03.501699", "level": "DEBUG", "event": "edge_added", "type": "member_of", "source": "tests\\fixtures\\sample_codebase\\auth.py::Auth._decode_payload", "target": "tests\\fixtures\\sample_codebase\\auth.py::Auth"}
+
+{"ts": "2026-02-26T12:03:03.502576", "level": "DEBUG", "event": "edge_added", "type": "member_of", "source": "tests\\fixtures\\sample_codebase\\auth.py::Auth._encode_token", "target": "tests\\fixtures\\sample_codebase\\auth.py::Auth"}
+
+{"ts": "2026-02-26T12:03:03.502576", "level": "DEBUG", "event": "edge_added", "type": "member_of", "source": "tests\\fixtures\\sample_codebase\\router.py::Request.__init__", "target": "tests\\fixtures\\sample_codebase\\router.py::Request"}
+
+{"ts": "2026-02-26T12:03:03.503014", "level": "DEBUG", "event": "edge_added", "type": "member_of", "source": "tests\\fixtures\\sample_codebase\\router.py::Response.__init__", "target": "tests\\fixtures\\sample_codebase\\router.py::Response"}
+
+{"ts": "2026-02-26T12:03:03.503014", "level": "DEBUG", "event": "edge_added", "type": "member_of", "source": "tests\\fixtures\\sample_codebase\\router.py::Router.__init__", "target": "tests\\fixtures\\sample_codebase\\router.py::Router"}
+
+{"ts": "2026-02-26T12:03:03.503014", "level": "DEBUG", "event": "edge_added", "type": "member_of", "source": "tests\\fixtures\\sample_codebase\\router.py::Router.register", "target": "tests\\fixtures\\sample_codebase\\router.py::Router"}
+
+{"ts": "2026-02-26T12:03:03.503014", "level": "DEBUG", "event": "edge_added", "type": "member_of", "source": "tests\\fixtures\\sample_codebase\\router.py::Router.route", "target": "tests\\fixtures\\sample_codebase\\router.py::Router"}
+
+{"ts": "2026-02-26T12:03:03.503014", "level": "DEBUG", "event": "edge_added", "type": "member_of", "source": "tests\\fixtures\\sample_codebase\\router.py::Router._validate_auth", "target": "tests\\fixtures\\sample_codebase\\router.py::Router"}
+
+{"ts": "2026-02-26T12:03:03.503014", "level": "DEBUG", "event": "edge_added", "type": "member_of", "source": "tests\\fixtures\\sample_codebase\\router.py::Router._not_found", "target": "tests\\fixtures\\sample_codebase\\router.py::Router"}
+
+{"ts": "2026-02-26T12:03:03.503014", "level": "DEBUG", "event": "edge_added", "type": "member_of", "source": "tests\\fixtures\\sample_codebase\\router.py::Router._error_response", "target": "tests\\fixtures\\sample_codebase\\router.py::Router"}
+
+{"ts": "2026-02-26T12:03:03.503014", "level": "DEBUG", "event": "edge_inferred", "type": "calls", "source": "tests\\fixtures\\sample_codebase\\auth.py::Auth.validate_token", "target": "tests\\fixtures\\sample_codebase\\auth.py::Auth._decode_payload"}
+
+{"ts": "2026-02-26T12:03:03.504023", "level": "DEBUG", "event": "edge_inferred", "type": "calls", "source": "tests\\fixtures\\sample_codebase\\auth.py::Auth.validate_token", "target": "tests\\fixtures\\sample_codebase\\auth.py::Auth._encode_token"}
+
+{"ts": "2026-02-26T12:03:03.504023", "level": "DEBUG", "event": "edge_inferred", "type": "calls", "source": "tests\\fixtures\\sample_codebase\\auth.py::Auth.refresh_token", "target": "tests\\fixtures\\sample_codebase\\auth.py::Auth._decode_payload"}
+
+{"ts": "2026-02-26T12:03:03.504023", "level": "DEBUG", "event": "edge_inferred", "type": "calls", "source": "tests\\fixtures\\sample_codebase\\auth.py::Auth.refresh_token", "target": "tests\\fixtures\\sample_codebase\\auth.py::Auth._encode_token"}
+
+{"ts": "2026-02-26T12:03:03.504023", "level": "DEBUG", "event": "edge_inferred", "type": "calls", "source": "tests\\fixtures\\sample_codebase\\router.py::Router.register", "target": "tests\\fixtures\\sample_codebase\\router.py::Router._validate_auth"}
+
+{"ts": "2026-02-26T12:03:03.504023", "level": "DEBUG", "event": "edge_inferred", "type": "calls", "source": "tests\\fixtures\\sample_codebase\\router.py::Router.register", "target": "tests\\fixtures\\sample_codebase\\router.py::Router._not_found"}
+
+{"ts": "2026-02-26T12:03:03.504023", "level": "DEBUG", "event": "edge_inferred", "type": "calls", "source": "tests\\fixtures\\sample_codebase\\router.py::Router.register", "target": "tests\\fixtures\\sample_codebase\\router.py::Router._error_response"}
+
+{"ts": "2026-02-26T12:03:03.504023", "level": "DEBUG", "event": "edge_inferred", "type": "calls", "source": "tests\\fixtures\\sample_codebase\\router.py::Router.route", "target": "tests\\fixtures\\sample_codebase\\router.py::Router._validate_auth"}
+
+{"ts": "2026-02-26T12:03:03.505021", "level": "DEBUG", "event": "edge_inferred", "type": "calls", "source": "tests\\fixtures\\sample_codebase\\router.py::Router.route", "target": "tests\\fixtures\\sample_codebase\\router.py::Router._not_found"}
+
+{"ts": "2026-02-26T12:03:03.505021", "level": "DEBUG", "event": "edge_inferred", "type": "calls", "source": "tests\\fixtures\\sample_codebase\\router.py::Router.route", "target": "tests\\fixtures\\sample_codebase\\router.py::Router._error_response"}
+
+{"ts": "2026-02-26T12:03:03.505021", "level": "INFO", "event": "graph_build_complete", "nodes": 24, "edges": 25}
+
+{"ts": "2026-02-26T12:03:03.505021", "level": "DEBUG", "event": "personalization_built", "keywords": ["auth", "validate", "token", "user"], "non_zero_nodes": 12}
+
+{"ts": "2026-02-26T12:03:05.873172", "level": "INFO", "event": "pagerank_computed", "nodes": 24, "max_score": 0.2400932346781361, "min_score": 0.0001982024737590806}
+
+{"ts": "2026-02-26T12:03:05.873172", "level": "INFO", "event": "tiers_assigned", "core": 3, "support": 7, "peripheral": 14}
+
+{"ts": "2026-02-26T12:03:05.875226", "level": "INFO", "event": "index_rendered", "files": 3, "symbols": 24, "char_count": 2458, "token_estimate": 614}
+
+{"ts": "2026-02-26T12:03:05.876730", "level": "INFO", "event": "demo_complete", "phase": "1", "symbols_indexed": 24, "graph_size": 24}
+

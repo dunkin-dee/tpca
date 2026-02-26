@@ -1,0 +1,10 @@
+# TPCA Phase 1 Dependencies
+
+# Core dependencies
+tree-sitter==0.21.3
+tree-sitter-python==0.21.0
+networkx>=3.0
+
+# Development dependencies (optional)
+pytest>=7.0.0
+pytest-cov>=4.0.0

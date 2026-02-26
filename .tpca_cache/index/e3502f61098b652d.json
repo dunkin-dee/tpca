@@ -1,0 +1,81 @@
+{
+  "file": "C:\\Users\\dimad\\projects\\tpca\\tests\\fixtures\\sample_codebase\\utils.py",
+  "cached_at": "2026-02-26T12:03:03.500122",
+  "symbols": [
+    {
+      "id": "tests\\fixtures\\sample_codebase\\utils.py::generate_token",
+      "type": "function",
+      "name": "generate_token",
+      "qualified_name": "generate_token",
+      "file": "tests\\fixtures\\sample_codebase\\utils.py",
+      "start_line": 9,
+      "end_line": 37,
+      "signature": "def generate_token(user_id: str, secret: str, expiry: int = 3600) -> str",
+      "docstring": "Generate a signed JWT token.\n    \n    Args:\n        user_id: User identifier\n        secret: Secret key for signing\n ...",
+      "parent_class": null,
+      "bases": [],
+      "decorators": [],
+      "pagerank": 0.0
+    },
+    {
+      "id": "tests\\fixtures\\sample_codebase\\utils.py::hash_password",
+      "type": "function",
+      "name": "hash_password",
+      "qualified_name": "hash_password",
+      "file": "tests\\fixtures\\sample_codebase\\utils.py",
+      "start_line": 40,
+      "end_line": 58,
+      "signature": "def hash_password(password: str, salt: Optional[str] = None) -> tuple[str, str]",
+      "docstring": "Hash a password with salt.\n    \n    Args:\n        password: Plain text password\n        salt: Optional salt (generate...",
+      "parent_class": null,
+      "bases": [],
+      "decorators": [],
+      "pagerank": 0.0
+    },
+    {
+      "id": "tests\\fixtures\\sample_codebase\\utils.py::verify_password",
+      "type": "function",
+      "name": "verify_password",
+      "qualified_name": "verify_password",
+      "file": "tests\\fixtures\\sample_codebase\\utils.py",
+      "start_line": 61,
+      "end_line": 74,
+      "signature": "def verify_password(password: str, hashed: str, salt: str) -> bool",
+      "docstring": "Verify a password against its hash.\n    \n    Args:\n        password: Plain text password to verify\n        hashed: St...",
+      "parent_class": null,
+      "bases": [],
+      "decorators": [],
+      "pagerank": 0.0
+    },
+    {
+      "id": "tests\\fixtures\\sample_codebase\\utils.py::_sign_token",
+      "type": "function",
+      "name": "_sign_token",
+      "qualified_name": "_sign_token",
+      "file": "tests\\fixtures\\sample_codebase\\utils.py",
+      "start_line": 77,
+      "end_line": 89,
+      "signature": "def _sign_token(payload: str, secret: str) -> str",
+      "docstring": "Sign a token payload.\n    \n    Args:\n        payload: Token payload to sign\n        secret: Secret key\n    \n    Retur...",
+      "parent_class": null,
+      "bases": [],
+      "decorators": [],
+      "pagerank": 0.0
+    },
+    {
+      "id": "tests\\fixtures\\sample_codebase\\utils.py::format_error",
+      "type": "function",
+      "name": "format_error",
+      "qualified_name": "format_error",
+      "file": "tests\\fixtures\\sample_codebase\\utils.py",
+      "start_line": 92,
+      "end_line": 112,
+      "signature": "def format_error(error: Exception, include_traceback: bool = False) -> dict",
+      "docstring": "Format an exception as a JSON-serializable dict.\n    \n    Args:\n        error: Exception to format\n        include_tr...",
+      "parent_class": null,
+      "bases": [],
+      "decorators": [],
+      "pagerank": 0.0
+    }
+  ]
+}
