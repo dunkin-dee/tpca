@@ -8,3 +8,7 @@ networkx>=3.0
 # Development dependencies (optional)
 pytest>=7.0.0
 pytest-cov>=4.0.0
+
+
+anthropic>=0.25.0       # LLM client (Anthropic Claude)
+tiktoken>=0.6.0         # Accurate token counting (cl100k_base)
