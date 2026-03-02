@@ -69,8 +69,6 @@ def main():
         "Document every public method in the codebase with its parameters "
         "and return type. Describe what each method does in 1–2 sentences.",
     )
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    has_llm = bool(api_key)
 
     config = TPCAConfig(
         languages=["python"],
@@ -79,19 +77,25 @@ def main():
         pagerank_alpha=0.85,
         model_context_window=8192,
         context_budget_pct=0.65,
-        reader_model="claude-haiku-4-5-20251001",
-        synthesis_model="claude-sonnet-4-6",
-        max_planner_retries=3,
-        output_mode="inline",  # Return output in-memory for demo
+        provider="ollama",
+        ollama_reader_model="qwen2.5-coder:14B",
+        ollama_synthesis_model="qwen2.5-coder:14B",
+        output_mode="inline",
         max_synthesis_iterations=20,
         log=LogConfig(
             console_level="INFO",
             log_file=".tpca_cache/demo_phase2.log",
         ),
     )
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    has_llm = bool(api_key) or config.provider == "ollama"
 
     print(f"📋 Task: {task[:80]}{'...' if len(task) > 80 else ''}")
-    print(f"🔑 LLM Available: {'✅ Yes' if has_llm else '❌ No (Pass 1 only mode)'}")
+    if has_llm:
+        provider_label = f"ollama ({config.active_synthesis_model})" if config.provider == "ollama" else "Anthropic"
+        print(f"🔑 LLM Available: ✅ Yes ({provider_label})")
+    else:
+        print(f"🔑 LLM Available: ❌ No (Pass 1 only mode)")
     print(f"🎯 Output mode: {config.output_mode}")
     print(f"📐 Context budget: {int(config.model_context_window * config.context_budget_pct)} tokens")
     print()
@@ -155,7 +159,7 @@ def main():
         return
 
     # Full Pass 2 with real LLM
-    print("🚀 Running full synthesis pipeline with Anthropic API...")
+    print(f"🚀 Running full synthesis pipeline with {config.provider}...")
     print()
 
     planner = ContextPlanner(config, logger, llm_client)

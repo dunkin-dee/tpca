@@ -1,3 +1,7 @@
-.pytest_cache/*
+.pytest_cache/
 .tpca_cache
 *.log
+
+__pycache__/
+*.py[cod]
+*$py.class

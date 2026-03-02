@@ -113,7 +113,7 @@ class ContextPlanner:
         messages = [{"role": "user", "content": prompt}]
         response_text = self._llm.complete(
             messages=messages,
-            model=self._config.reader_model,
+            model=self._config.active_reader_model,
             max_tokens=1024,
         )
 
@@ -153,7 +153,7 @@ class ContextPlanner:
             messages.append({"role": "user", "content": retry_prompt})
             response_text = self._llm.complete(
                 messages=messages,
-                model=self._config.reader_model,
+                model=self._config.active_reader_model,
                 max_tokens=1024,
             )
             request = self._parse_response(response_text)

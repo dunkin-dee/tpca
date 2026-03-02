@@ -24,6 +24,12 @@ try:
 except ImportError:
     _ANTHROPIC_AVAILABLE = False
 
+try:
+    import openai
+    _OPENAI_AVAILABLE = True
+except ImportError:
+    _OPENAI_AVAILABLE = False
+
 
 class TokenCounter:
     """
@@ -79,22 +85,25 @@ class LLMClient:
         self._client = self._build_client()
 
     def _build_client(self):
-        """Build the underlying API client."""
-        if not _ANTHROPIC_AVAILABLE:
-            self._logger.warn(
-                "anthropic_unavailable",
-                hint="Install with: pip install anthropic",
-            )
-            return None
+        provider = getattr(self._config, "provider", "anthropic")
 
+        if provider == "ollama":
+            if not _OPENAI_AVAILABLE:
+                self._logger.warn("openai_unavailable", hint="pip install openai")
+                return None
+            return openai.OpenAI(
+                base_url="http://localhost:11434/v1",
+                api_key="ollama",  # required by the client but ignored by Ollama
+            )
+
+        # Default: Anthropic
+        if not _ANTHROPIC_AVAILABLE:
+            self._logger.warn("anthropic_unavailable", hint="pip install anthropic")
+            return None
         api_key = os.environ.get("ANTHROPIC_API_KEY")
         if not api_key:
-            self._logger.warn(
-                "api_key_missing",
-                hint="Set ANTHROPIC_API_KEY environment variable",
-            )
+            self._logger.warn("api_key_missing", hint="Set ANTHROPIC_API_KEY")
             return None
-
         return anthropic.Anthropic(api_key=api_key)
 
     def complete(
@@ -111,7 +120,8 @@ class LLMClient:
         Call the LLM and return the text response.
         Retries on transient errors with exponential backoff.
         """
-        model = model or self._config.synthesis_model
+        model = model or self._config.active_synthesis_model
+        provider = getattr(self._config, "provider", "anthropic")
 
         if self._client is None:
             raise RuntimeError(
@@ -130,28 +140,32 @@ class LLMClient:
         last_error = None
         for attempt in range(max_retries):
             try:
-                kwargs: dict[str, Any] = {
-                    "model": model,
-                    "max_tokens": max_tokens,
-                    "temperature": temperature,
-                    "messages": messages,
-                }
-                if system:
-                    kwargs["system"] = system
-
                 t0 = time.time()
-                response = self._client.messages.create(**kwargs)
-                elapsed_ms = int((time.time() - t0) * 1000)
 
-                text = response.content[0].text
-                output_tokens = self.token_counter.count(text)
+                if provider == "ollama":
+                    all_messages = messages
+                    if system:
+                        all_messages = [{"role": "system", "content": system}] + messages
+                    response = self._client.chat.completions.create(
+                        model=model,
+                        messages=all_messages,
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                    )
+                    text = response.choices[0].message.content
+
+                else:  # anthropic
+                    kwargs = dict(model=model, max_tokens=max_tokens,
+                                temperature=temperature, messages=messages)
+                    if system:
+                        kwargs["system"] = system
+                    response = self._client.messages.create(**kwargs)
+                    text = response.content[0].text
 
                 self._logger.info(
                     "llm_call_complete",
                     model=model,
-                    prompt_tokens=prompt_tokens,
-                    output_tokens=output_tokens,
-                    elapsed_ms=elapsed_ms,
+                    prompt_tokens=prompt_tokens
                 )
                 return text
 

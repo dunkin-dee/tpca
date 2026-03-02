@@ -179,7 +179,7 @@ class SynthesisAgent:
             # ── LLM call ───────────────────────────────────────────────────
             response_text = self._llm.complete(
                 messages=[{"role": "user", "content": prompt}],
-                model=self._config.synthesis_model,
+                model=self._config.active_synthesis_model,
                 max_tokens=4096,
             )
             llm_calls += 1
