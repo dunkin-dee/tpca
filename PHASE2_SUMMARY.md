@@ -14,7 +14,7 @@ synthesis session, with bounded context regardless of output size.
 ### ✅ New Components
 
 1. **LLMClient** (`tpca/llm/client.py`)
-   - Provider-agnostic Anthropic API wrapper
+   - Provider-agnostic API wrapper (Anthropic Claude or Ollama)
    - tiktoken-accurate token counting (cl100k_base)
    - Exponential backoff retry logic (configurable max_retries)
    - Structured logging of all API calls (prompt tokens, output tokens, latency)
@@ -114,20 +114,30 @@ PHASE2_SUMMARY.md
 
 - `tpca/config.py` — Added Phase 2 config fields (LLM models, output mode, etc.)
 - `tpca/__init__.py` — Exports all Phase 2 symbols
-- `requirements.txt` — Added `anthropic>=0.25.0` and `tiktoken>=0.6.0`
+- `requirements.txt` — Added `anthropic>=0.25.0`, `tiktoken>=0.6.0`, and `openai>=1.0.0`
 
 ## Installation & Usage
 
 ### Install Dependencies
 
 ```bash
-pip install tree-sitter-python networkx anthropic tiktoken
+pip install tree-sitter-python networkx anthropic tiktoken openai
 ```
 
-### Quick Start (with LLM)
+### Quick Start (with Anthropic Claude)
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
+python demo_phase2.py
+```
+
+### Quick Start (with Ollama)
+
+```bash
+# Install Ollama and pull a model
+ollama pull qwen2.5-coder:14B
+
+# Run demo (will auto-detect Ollama if no ANTHROPIC_API_KEY)
 python demo_phase2.py
 ```
 
@@ -206,7 +216,7 @@ pytest tests/test_context_planner.py tests/test_slice_fetcher.py \
        tests/test_output_chunker.py tests/test_synthesis_agent.py \
        tests/test_llm_client.py -v
 
-# Integration tests (requires ANTHROPIC_API_KEY)
+# Integration tests (requires ANTHROPIC_API_KEY or Ollama running)
 TPCA_RUN_INTEGRATION=1 pytest tests/ -v -m integration
 ```
 
@@ -239,7 +249,7 @@ OutputChunker checks `completed_symbols()` against the OutputLog at every
 reloaded from disk, already-completed symbols are automatically skipped.
 
 ### Graceful Degradation
-- No API key → Pass 1 runs fully, Pass 2 is skipped with a clear warning
+- No LLM available (no API key + Ollama not running) → Pass 1 runs fully, Pass 2 is skipped with a clear warning
 - LLM returns unknown symbol IDs → ContextPlanner retries with suggestions
 - All retries fail → falls back to top CORE symbols by PageRank
 - Source file missing → SliceFetcher returns signature-only slice
