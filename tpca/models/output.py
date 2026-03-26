@@ -42,6 +42,11 @@ class OutputLog:
     def add(self, chunk: OutputChunk) -> None:
         self.entries.append(chunk)
 
+    @property
+    def chunks(self) -> list[OutputChunk]:
+        """Alias for entries — used by Phase 3 fallback code and tests."""
+        return self.entries
+
     def completed_symbols(self) -> set[str]:
         return {e.symbol_id for e in self.entries if e.status == "complete"}
 
@@ -64,16 +69,39 @@ class OutputLog:
     def from_dict(cls, data: dict) -> "OutputLog":
         return cls(entries=[OutputChunk.from_dict(e) for e in data.get("entries", [])])
 
+    @classmethod
+    def from_manifest(cls, manifest: "OutputManifest") -> "OutputLog":
+        """
+        Reconstruct an OutputLog from a saved OutputManifest.
+
+        Used by TPCAOrchestrator when resuming an interrupted run to restore
+        cross-file consistency context without re-processing complete files.
+        """
+        log = cls()
+        chunk_id = 0
+        for entry in manifest.files:
+            if entry.status == "complete":
+                for sym_id in entry.symbols_processed:
+                    log.add(OutputChunk(
+                        chunk_id=chunk_id,
+                        symbol_id=sym_id,
+                        summary=f"Previously completed — see {entry.output_file}.",
+                        status="complete",
+                        token_count=entry.token_count // max(len(entry.symbols_processed), 1),
+                    ))
+                    chunk_id += 1
+        return log
+
 
 @dataclass
 class ManifestEntry:
     """Per-file record in the OutputManifest."""
     source_file: str
     output_file: str
-    symbols_processed: list[str]
-    chunk_count: int
-    token_count: int
-    status: str         # complete | partial | skipped
+    symbols_processed: list[str] = field(default_factory=list)
+    chunk_count: int = 0
+    token_count: int = 0
+    status: str = "partial"   # complete | partial | skipped
 
     def to_dict(self) -> dict:
         return {
@@ -87,7 +115,14 @@ class ManifestEntry:
 
     @classmethod
     def from_dict(cls, data: dict) -> "ManifestEntry":
-        return cls(**data)
+        return cls(
+            source_file=data["source_file"],
+            output_file=data["output_file"],
+            symbols_processed=data.get("symbols_processed", []),
+            chunk_count=data.get("chunk_count", 0),
+            token_count=data.get("token_count", 0),
+            status=data.get("status", "partial"),
+        )
 
 
 @dataclass
@@ -107,6 +142,33 @@ class OutputManifest:
 
     def add_file(self, entry: ManifestEntry) -> None:
         self.files.append(entry)
+
+    # ── Phase 3 additions ─────────────────────────────────────────────────────
+
+    def get_entry(self, source_file: str) -> "Optional[ManifestEntry]":
+        """Return the ManifestEntry for source_file, or None if not found."""
+        for entry in self.files:
+            if entry.source_file == source_file:
+                return entry
+        return None
+
+    def upsert_entry(self, entry: ManifestEntry) -> None:
+        """Update an existing entry with the same source_file, or append."""
+        for i, e in enumerate(self.files):
+            if e.source_file == entry.source_file:
+                self.files[i] = entry
+                return
+        self.files.append(entry)
+
+    def incomplete_files(self) -> list[ManifestEntry]:
+        """Return entries that are not yet fully complete."""
+        return [e for e in self.files if e.status != "complete"]
+
+    def is_done(self) -> bool:
+        """True only when completed_at is set AND every entry is complete."""
+        return bool(self.completed_at) and all(
+            e.status == "complete" for e in self.files
+        )
 
     def to_dict(self) -> dict:
         return {

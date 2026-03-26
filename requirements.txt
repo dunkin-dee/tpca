@@ -1,15 +1,33 @@
-# TPCA Dependencies
+# TPCA Requirements
+# Phase 1 + Phase 2 + Phase 3
+#
+# Install all:
+#   pip install -r requirements.txt
+#
+# Minimal install (Python only, no LLM synthesis):
+#   pip install tree-sitter-python networkx
 
-# Core dependencies
-tree-sitter==0.21.3
-tree-sitter-python==0.21.0
+# ── Pass 1 — AST Indexing ────────────────────────────────────────────────────
+tree-sitter>=0.21.0
+tree-sitter-python>=0.21.0
+
+# ── NEW (Phase 3) — Multi-Language Parsing ───────────────────────────────────
+# Install to enable JavaScript / TypeScript / TSX indexing.
+# Python-only setups can omit these; the indexer degrades gracefully.
+tree-sitter-javascript>=0.21.0
+tree-sitter-typescript>=0.21.0
+
+# ── Graph construction and ranking ───────────────────────────────────────────
 networkx>=3.0
 
-# LLM clients
-anthropic>=0.25.0       # Anthropic Claude API
-openai>=1.0.0           # Ollama via OpenAI-compatible API
-tiktoken>=0.6.0         # Accurate token counting (cl100k_base)
+# ── Pass 2 — LLM Client ──────────────────────────────────────────────────────
+anthropic>=0.25.0
+tiktoken>=0.6.0
 
-# Development dependencies (optional)
+# ── Pass 2 — Ollama provider (optional) ──────────────────────────────────────
+# Used when config.provider == 'ollama'
+openai>=1.0.0
+
+# ── Testing ──────────────────────────────────────────────────────────────────
 pytest>=7.0.0
-pytest-cov>=4.0.0
+pytest-asyncio>=0.21.0

@@ -21,6 +21,23 @@ class TPCAConfig:
     cache_dir: str = ".tpca_cache"
     cache_enabled: bool = True
 
+    # ── Phase 3 — Language extension mapping ──────────────────────────────────
+    # Maps file extensions → language strings. Customise to add new types.
+    language_extensions: dict = field(
+        default_factory=lambda: {
+            ".py":   "python",
+            ".pyi":  "python",
+            ".js":   "javascript",
+            ".jsx":  "javascript",
+            ".mjs":  "javascript",
+            ".cjs":  "javascript",
+            ".ts":   "typescript",
+            ".mts":  "typescript",
+            ".cts":  "typescript",
+            ".tsx":  "tsx",
+        }
+    )
+
     # ── Graph Ranking ──────────────────────────────────────────────────────────
     pagerank_alpha: float = 0.85
     top_n_symbols: int = 50
@@ -49,6 +66,12 @@ class TPCAConfig:
     # ── Fallback (Phase 3) ────────────────────────────────────────────────────
     fallback_chunk_tokens: int = 1800
     fallback_overlap_tokens: int = 150
+    fallback_enabled: bool = True
+    # Set to False to disable ChunkedFallback and raise instead of falling back.
+
+    # ── Resume (Phase 3) ──────────────────────────────────────────────────────
+    resume_manifest: "Optional[str]" = None
+    # Path to a manifest.json from a prior interrupted run.
 
     # ── Logging ───────────────────────────────────────────────────────────────
     log: LogConfig = field(default_factory=LogConfig)
@@ -63,3 +86,26 @@ class TPCAConfig:
     def active_synthesis_model(self) -> str:
         """Returns the correct synthesis model for the active provider."""
         return self.ollama_synthesis_model if self.provider == "ollama" else self.synthesis_model
+
+    @property
+    def context_budget_tokens(self) -> int:
+        """Absolute token budget derived from window size and budget fraction."""
+        return int(self.model_context_window * self.context_budget_pct)
+
+    def supports_language(self, lang: str) -> bool:
+        """Return True if lang is in the configured languages list."""
+        return lang in self.languages
+
+    def detect_language(self, file_path: str) -> "Optional[str]":
+        """
+        Map a file extension to a language string.
+
+        Returns None if the extension is unmapped or the detected language
+        is not in self.languages (e.g. 'tsx' is not enabled by default).
+        """
+        from pathlib import Path as _Path
+        ext = _Path(file_path).suffix.lower()
+        lang = self.language_extensions.get(ext)
+        if lang and lang in self.languages:
+            return lang
+        return None

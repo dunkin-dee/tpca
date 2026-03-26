@@ -25,13 +25,14 @@ class OutputWriter:
 
     SUPPORTED_MODES = ("single_file", "mirror", "per_symbol", "inline")
 
-    def __init__(self, config, logger, source_root: Optional[str] = None):
+    def __init__(self, config, logger, source_root: Optional[str] = None, task: str = ""):
         self._config = config
         self._logger = logger
         self._source_root = Path(source_root) if source_root else None
         self._output_dir = Path(config.output_dir)
         self._mode = config.output_mode
-        self._manifest = OutputManifest(task="", output_mode=self._mode)
+        self._task = task
+        self._manifest = OutputManifest(task=task, output_mode=self._mode)
 
         # In-memory accumulator (used for 'inline' mode or testing)
         self._inline_buffer: dict[str, list[str]] = {}
@@ -164,3 +165,47 @@ class OutputWriter:
         if "::" in symbol_id:
             return symbol_id.split("::")[0]
         return symbol_id
+
+    # ── Phase 3 additions ─────────────────────────────────────────────────────
+
+    def get_output(self) -> dict[str, str]:
+        """Return the complete in-memory output (inline mode) or last-chunk buffer."""
+        return self.flush_inline()
+
+    def finalize(self) -> None:
+        """Mark the manifest complete and save it to disk."""
+        self._manifest.mark_complete()
+        self._save_manifest()
+
+    def save_partial(self) -> None:
+        """Persist the manifest in its current partial state (for resume on interrupt)."""
+        self._save_manifest()
+
+    def mark_all_complete(self) -> None:
+        """Mark every manifest entry as complete."""
+        for entry in self._manifest.files:
+            entry.status = "complete"
+
+    def mark_file_complete(self, source_file: str) -> None:
+        """Mark one source file's manifest entry as complete."""
+        entry = self._manifest.get_entry(source_file)
+        if entry:
+            entry.status = "complete"
+            self._manifest.upsert_entry(entry)
+
+    def _save_manifest(self) -> None:
+        """Write manifest.json to the cache directory."""
+        import os as _os
+        cache_dir = getattr(self._config, "cache_dir", ".tpca_cache")
+        manifest_path = Path(cache_dir) / "manifest.json"
+        try:
+            manifest_path.parent.mkdir(parents=True, exist_ok=True)
+            self._manifest.save(str(manifest_path))
+            self._logger.debug("manifest_saved", path=str(manifest_path))
+        except OSError as exc:
+            self._logger.warn("manifest_save_failed", error=str(exc))
+
+    @classmethod
+    def load_manifest(cls, path: str) -> OutputManifest:
+        """Load a manifest from disk for the resume path in TPCAOrchestrator."""
+        return OutputManifest.load(path)

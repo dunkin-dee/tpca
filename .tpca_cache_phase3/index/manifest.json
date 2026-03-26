@@ -1,0 +1,35 @@
+{
+  "files": {
+    "C:\\Users\\dimad\\projects\\tpca\\tests\\fixtures\\sample_codebase\\auth.py": {
+      "hash": "699a64b79bd0aecb",
+      "mtime": 1772031492.8064857,
+      "symbol_count": 8
+    },
+    "C:\\Users\\dimad\\projects\\tpca\\tests\\fixtures\\sample_codebase\\router.py": {
+      "hash": "e3dae5a9a4a7bbf9",
+      "mtime": 1772031492.8114877,
+      "symbol_count": 11
+    },
+    "C:\\Users\\dimad\\projects\\tpca\\tests\\fixtures\\sample_codebase\\utils.py": {
+      "hash": "e3502f61098b652d",
+      "mtime": 1772031492.8170342,
+      "symbol_count": 5
+    },
+    "C:\\Users\\dimad\\projects\\tpca\\tests\\fixtures\\sample_js_codebase\\auth.js": {
+      "hash": "ab9b04b564aafa4b",
+      "mtime": 1774467958.7391503,
+      "symbol_count": 0
+    },
+    "C:\\Users\\dimad\\projects\\tpca\\tests\\fixtures\\sample_js_codebase\\router.js": {
+      "hash": "e7cae4e8e3a297d5",
+      "mtime": 1774467958.7481477,
+      "symbol_count": 0
+    },
+    "C:\\Users\\dimad\\projects\\tpca\\tests\\fixtures\\sample_js_codebase\\utils.js": {
+      "hash": "8c5a626dd4e1f3e5",
+      "mtime": 1774467958.758153,
+      "symbol_count": 0
+    }
+  },
+  "version": "1.0"
+}

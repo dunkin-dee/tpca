@@ -74,6 +74,15 @@ class TPCAOrchestrator:
             fetcher=self._fetcher,
         )
 
+        # ── Phase 3 — ChunkedFallback (optional) ──────────────────────────────
+        self._fallback = None
+        if getattr(self._config, "fallback_enabled", False):
+            try:
+                from .fallback.chunked_pipeline import ChunkedFallback
+                self._fallback = ChunkedFallback(self._config, self._logger, self._llm)
+            except ImportError:
+                pass  # fallback module not yet available — non-fatal
+
         self._logger.info(
             "orchestrator_init",
             output_mode=self._config.output_mode,
@@ -89,16 +98,20 @@ class TPCAOrchestrator:
         task: str,
         task_keywords: Optional[list[str]] = None,
         budget_tokens: Optional[int] = None,
+        resume_manifest: Optional[str] = None,
     ) -> dict:
         """
         Execute the full TPCA pipeline for a given task.
 
         Args:
-            source:        Path to source directory, file, or list of files.
-            task:          Natural language task description.
-            task_keywords: Optional keywords for Pass 1 PageRank bias.
-                           If not given, extracted from the task string.
-            budget_tokens: Override the token budget for context slices.
+            source:          Path to source directory, file, or list of files.
+            task:            Natural language task description.
+            task_keywords:   Optional keywords for Pass 1 PageRank bias.
+                             If not given, extracted from the task string.
+            budget_tokens:   Override the token budget for context slices.
+            resume_manifest: Path to a manifest.json from a prior interrupted
+                             run. When set (or via config.resume_manifest),
+                             already-complete symbols are skipped.  [Phase 3]
 
         Returns:
             dict with keys:
@@ -109,6 +122,10 @@ class TPCAOrchestrator:
         """
         t_total = time.time()
         self._logger.info("orchestrator_run_start", source=str(source), task=task[:80])
+
+        # ── Phase 3 — Resume: resolve manifest path and load prior state ───────
+        resume_path = resume_manifest or getattr(self._config, "resume_manifest", None)
+        prior_manifest, prior_log, skip_symbols = self._load_resume_state(resume_path)
 
         # ── Pass 1 ─────────────────────────────────────────────────────────────
         t_pass1 = time.time()
@@ -170,6 +187,8 @@ class TPCAOrchestrator:
             graph=graph,
             source_root=source_root,
             budget_tokens=budget_tokens,
+            prior_log=prior_log,               # Phase 3: rehydrated OutputLog or None
+            skip_symbols=skip_symbols,         # Phase 3: set of already-complete IDs
         )
 
         total_ms = int((time.time() - t_total) * 1000)
@@ -188,6 +207,7 @@ class TPCAOrchestrator:
             }),
             "symbols_indexed": len(symbols),
             "compression_ratio": round(compression_ratio, 1),
+            "fallback_used": getattr(result, "fallback_used", False),  # Phase 3
             **result.stats,
         }
 
@@ -245,3 +265,47 @@ class TPCAOrchestrator:
         }
         words = task.lower().replace(",", " ").replace(".", " ").split()
         return [w for w in words if len(w) > 4 and w not in stopwords][:10]
+
+    # ── Phase 3 — Resume helpers ───────────────────────────────────────────────
+
+    def _load_resume_state(self, manifest_path: Optional[str]):
+        """
+        Load a prior manifest and rehydrate its OutputLog.
+
+        Returns (manifest, output_log, skip_symbols) where skip_symbols is
+        the set of fully-qualified symbol IDs that are already complete.
+        Returns (None, None, set()) when manifest_path is None or unreadable.
+        """
+        if not manifest_path:
+            return None, None, set()
+
+        try:
+            from .models.output import OutputManifest, OutputLog
+            manifest = OutputManifest.load(manifest_path)
+            output_log = OutputLog.from_manifest(manifest)
+            skip_symbols = self._complete_symbols(manifest)
+            self._logger.info(
+                "resume_manifest_loaded",
+                path=manifest_path,
+                files_total=len(manifest.files),
+                files_complete=sum(1 for e in manifest.files if e.status == "complete"),
+                symbols_skipping=len(skip_symbols),
+            )
+            return manifest, output_log, skip_symbols
+        except FileNotFoundError:
+            self._logger.warn("resume_manifest_not_found", path=manifest_path)
+            return None, None, set()
+        except Exception as exc:
+            self._logger.warn("resume_manifest_failed", path=manifest_path, error=str(exc))
+            return None, None, set()
+
+    @staticmethod
+    def _complete_symbols(manifest) -> set:
+        """Return the set of symbol IDs already processed in complete entries."""
+        if manifest is None:
+            return set()
+        completed: set = set()
+        for entry in manifest.files:
+            if entry.status == "complete":
+                completed.update(entry.symbols_processed)
+        return completed

@@ -12,6 +12,28 @@ from ..config import TPCAConfig
 from ..logging import StructuredLogger
 from ..models import Symbol
 
+# ── Phase 3 — Optional JS/TS parsers ─────────────────────────────────────────
+# These are graceful: Python-only installs work fine without them.
+try:
+    import tree_sitter_javascript as _tsjs
+    print("JS/TS parser available")
+    _JS_LANGUAGE = Language(_tsjs.language())
+    _JS_AVAILABLE = True
+except Exception:
+    _JS_LANGUAGE = None
+    _JS_AVAILABLE = False
+
+try:
+    import tree_sitter_typescript as _tsts
+    print("TypeScript parser available")
+    _TS_LANGUAGE  = Language(_tsts.language_typescript())
+    _TSX_LANGUAGE = Language(_tsts.language_tsx())
+    _TSTYPE_AVAILABLE = True
+except Exception:
+    _TS_LANGUAGE  = None
+    _TSX_LANGUAGE = None
+    _TSTYPE_AVAILABLE = False
+
 
 class ASTIndexer:
     """
@@ -137,18 +159,32 @@ class ASTIndexer:
     def _detect_language(self, path: str) -> str:
         """
         Detect language from file extension.
-        
-        Args:
-            path: File path
-        
-        Returns:
-            Language name (e.g., 'python') or 'unknown'
+
+        Delegates to config.detect_language() for Phase 3 extension mapping
+        (which respects the configured languages list). Falls back to the
+        class-level LANGUAGE_EXTENSIONS dict for backward compatibility.
+
+        Returns language name (e.g. 'python') or 'unknown'.
         """
+        # Use config's detect_language if it supports the new Phase 3 API
+        if hasattr(self.config, "detect_language"):
+            result = self.config.detect_language(path)
+            if result is not None:
+                return result
+            # detect_language returns None when lang not in config.languages —
+            # return 'unknown' so the caller skips this file.
+            ext = Path(path).suffix
+            for lang, exts in self.LANGUAGE_EXTENSIONS.items():
+                if ext in exts:
+                    return lang  # recognised extension but language not enabled
+            return "unknown"
+
+        # Legacy fallback (config without detect_language)
         ext = Path(path).suffix
         for lang, exts in self.LANGUAGE_EXTENSIONS.items():
             if ext in exts:
                 return lang
-        return 'unknown'
+        return "unknown"
     
     def _parse_file(self, path: str, language: str) -> list[Symbol]:
         """
@@ -169,6 +205,10 @@ class ASTIndexer:
             
             if language == 'python':
                 return self._extract_python_symbols(path, source_code, tree)
+            elif language == 'javascript':                  # Phase 3
+                return self._parse_javascript(path, source_code)
+            elif language in ('typescript', 'tsx'):         # Phase 3
+                return self._parse_typescript(path, source_code, tsx=(language == 'tsx'))
             else:
                 self.logger.warn('unsupported_language', file=path, language=language)
                 return []
@@ -176,6 +216,236 @@ class ASTIndexer:
         except Exception as e:
             self.logger.error('parse_error', file=path, error=str(e))
             return []
+
+    # ── Phase 3 — JavaScript parsing ─────────────────────────────────────────
+
+    def _parse_javascript(self, path: str, source: bytes) -> list[Symbol]:
+        if not _JS_AVAILABLE or _JS_LANGUAGE is None:
+            self.logger.warn(
+                'js_parser_unavailable', file=path,
+                hint='pip install tree-sitter-javascript',
+            )
+            return []
+        parser = Parser(_JS_LANGUAGE)
+        tree = parser.parse(source)
+        query = self._get_js_query('javascript', _JS_LANGUAGE)
+        return self._extract_js_symbols(path, source.decode('utf-8', errors='replace'), tree, query)
+
+    def _parse_typescript(self, path: str, source: bytes, tsx: bool = False) -> list[Symbol]:
+        lang_obj = _TSX_LANGUAGE if tsx else _TS_LANGUAGE
+        lang_key = 'tsx' if tsx else 'typescript'
+        if not _TSTYPE_AVAILABLE or lang_obj is None:
+            self.logger.warn(
+                'ts_parser_unavailable', file=path,
+                hint='pip install tree-sitter-typescript',
+            )
+            return []
+        parser = Parser(lang_obj)
+        tree = parser.parse(source)
+        query = self._get_js_query(lang_key, lang_obj)
+        return self._extract_js_symbols(path, source.decode('utf-8', errors='replace'), tree, query)
+
+    def _extract_js_symbols(self, path: str, source_text: str, tree, query) -> list[Symbol]:
+        """Extract classes, methods, functions (and TS interfaces/enums) from a JS/TS tree."""
+        import re
+        symbols: list[Symbol] = []
+        rel_path = self._make_relative_path(path)
+        captures = query.captures(tree.root_node)
+
+        by_name: dict[str, list] = {}
+        for node, cap_name in captures:
+            by_name.setdefault(cap_name, []).append(node)
+
+        jsdoc_map = self._build_jsdoc_map(by_name.get('docstring.candidate', []))
+        seen_ids: set[str] = set()
+
+        def add(sym):
+            if sym and sym.id not in seen_ids:
+                seen_ids.add(sym.id)
+                symbols.append(sym)
+
+        for n in by_name.get('class.name', []):
+            add(self._build_js_class(rel_path, n, jsdoc_map))
+        for n in by_name.get('interface.name', []):
+            add(self._build_js_interface(rel_path, n))
+        for n in by_name.get('type.name', []):
+            add(self._build_js_type_alias(rel_path, n))
+        for n in by_name.get('enum.name', []):
+            add(self._build_js_enum(rel_path, n))
+        for n in by_name.get('function.name', []):
+            add(self._build_js_function(rel_path, n, jsdoc_map))
+        for n in by_name.get('method.name', []):
+            add(self._build_js_method(rel_path, n, jsdoc_map))
+
+        return symbols
+
+    def _build_js_class(self, path, name_node, jsdoc_map):
+        name = name_node.text.decode('utf-8')
+        cls_node = self._find_ancestor(name_node, {'class_declaration', 'class'})
+        if not cls_node:
+            return None
+        superclass = self._extract_js_superclass(cls_node)
+        sig = f'class {name}' + (f' extends {superclass}' if superclass else '')
+        sym_id = f'{path}::{name}'
+        return Symbol(
+            id=sym_id, type='class', name=name, qualified_name=name, file=path,
+            start_line=cls_node.start_point[0], end_line=cls_node.end_point[0],
+            signature=sig, docstring=jsdoc_map.get(cls_node.id, '')[:120],
+            bases=[superclass] if superclass else [],
+        )
+
+    def _build_js_interface(self, path, name_node):
+        name = name_node.text.decode('utf-8')
+        node = self._find_ancestor(name_node, {'interface_declaration'})
+        if not node:
+            return None
+        sym_id = f'{path}::{name}'
+        return Symbol(
+            id=sym_id, type='class', name=name, qualified_name=name, file=path,
+            start_line=node.start_point[0], end_line=node.end_point[0],
+            signature=f'interface {name}', docstring='',
+        )
+
+    def _build_js_type_alias(self, path, name_node):
+        name = name_node.text.decode('utf-8')
+        node = self._find_ancestor(name_node, {'type_alias_declaration'})
+        if not node:
+            return None
+        sym_id = f'{path}::{name}'
+        return Symbol(
+            id=sym_id, type='constant', name=name, qualified_name=name, file=path,
+            start_line=node.start_point[0], end_line=node.end_point[0],
+            signature=f'type {name}', docstring='',
+        )
+
+    def _build_js_enum(self, path, name_node):
+        name = name_node.text.decode('utf-8')
+        node = self._find_ancestor(name_node, {'enum_declaration'})
+        if not node:
+            return None
+        sym_id = f'{path}::{name}'
+        return Symbol(
+            id=sym_id, type='class', name=name, qualified_name=name, file=path,
+            start_line=node.start_point[0], end_line=node.end_point[0],
+            signature=f'enum {name}', docstring='',
+        )
+
+    def _build_js_function(self, path, name_node, jsdoc_map):
+        name = name_node.text.decode('utf-8')
+        ancestor_types = {
+            'function_declaration', 'lexical_declaration',
+            'variable_declarator', 'export_statement',
+        }
+        func_node = self._find_ancestor(name_node, ancestor_types)
+        if not func_node:
+            return None
+        actual = self._find_descendant(func_node, {'function_declaration', 'arrow_function', 'function'})
+        target = actual or func_node
+        params = self._extract_js_params(target)
+        ret = self._extract_js_return_type(target)
+        sig = f'function {name}({params})' + (f': {ret}' if ret else '')
+        sym_id = f'{path}::{name}'
+        return Symbol(
+            id=sym_id, type='function', name=name, qualified_name=name, file=path,
+            start_line=target.start_point[0], end_line=target.end_point[0],
+            signature=sig, docstring=jsdoc_map.get(func_node.id, '')[:120],
+        )
+
+    def _build_js_method(self, path, name_node, jsdoc_map):
+        name = name_node.text.decode('utf-8')
+        method_node = self._find_ancestor(name_node, {'method_definition', 'abstract_method_signature'})
+        if not method_node:
+            return None
+        class_node = self._find_ancestor(method_node, {'class_declaration', 'class', 'interface_declaration'})
+        parent_name = None
+        if class_node:
+            for child in class_node.children:
+                if child.type in ('identifier', 'type_identifier'):
+                    parent_name = child.text.decode('utf-8')
+                    break
+        params = self._extract_js_params(method_node)
+        ret = self._extract_js_return_type(method_node)
+        qualified = f'{parent_name}.{name}' if parent_name else name
+        sig = f'{qualified}({params})' + (f': {ret}' if ret else '')
+        sym_id = f'{path}::{qualified}'
+        return Symbol(
+            id=sym_id, type='method', name=name, qualified_name=qualified, file=path,
+            start_line=method_node.start_point[0], end_line=method_node.end_point[0],
+            signature=sig, docstring=jsdoc_map.get(method_node.id, '')[:120],
+            parent_class=parent_name,
+        )
+
+    # ── JS/TS AST helpers ─────────────────────────────────────────────────────
+
+    def _extract_js_superclass(self, class_node):
+        for child in class_node.children:
+            if child.type == 'class_heritage':
+                for sub in child.children:
+                    if sub.type == 'extends_clause':
+                        for s in sub.children:
+                            if s.type in ('identifier', 'member_expression'):
+                                return s.text.decode('utf-8')
+                    if sub.type == 'identifier':
+                        return sub.text.decode('utf-8')
+        return None
+
+    def _extract_js_params(self, node) -> str:
+        for child in node.children:
+            if child.type == 'formal_parameters':
+                inner = child.text.decode('utf-8').strip('()')
+                return inner[:120]
+        return ''
+
+    def _extract_js_return_type(self, node) -> str:
+        for child in node.children:
+            if child.type == 'type_annotation':
+                return child.text.decode('utf-8').lstrip(': ').strip()[:60]
+        return ''
+
+    def _build_jsdoc_map(self, comment_nodes: list) -> dict:
+        import re
+        result = {}
+        for node in comment_nodes:
+            raw = node.text.decode('utf-8').strip()
+            if raw.startswith('/**'):
+                inner = raw[3:-2] if raw.endswith('*/') else raw[3:]
+                cleaned = re.sub(r'^\s*\*\s?', '', inner, flags=re.MULTILINE).strip()
+                result[node.id] = cleaned[:120]
+        return result
+
+    @staticmethod
+    def _find_ancestor(node, types: set):
+        current = node.parent
+        while current:
+            if current.type in types:
+                return current
+            current = current.parent
+        return None
+
+    @staticmethod
+    def _find_descendant(node, types: set):
+        queue = list(node.children)
+        while queue:
+            child = queue.pop(0)
+            if child.type in types:
+                return child
+            queue.extend(child.children)
+        return None
+
+    def _get_js_query(self, lang: str, language_obj):
+        """Load and cache the Tree-sitter query for a JS/TS language."""
+        cache_key = f'_js_query_{lang}'
+        if not hasattr(self, cache_key):
+            query_file = Path(__file__).parent / 'queries' / f'{lang}.scm'
+            if not query_file.exists() and lang == 'tsx':
+                query_file = Path(__file__).parent / 'queries' / 'typescript.scm'
+            if query_file.exists():
+                q = language_obj.query(query_file.read_text())
+            else:
+                self.logger.warn('js_query_file_missing', language=lang, path=str(query_file))
+                q = language_obj.query('(identifier) @noop')
+            setattr(self, cache_key, q)
+        return getattr(self, cache_key)
     
     def _extract_python_symbols(self, filepath: str, source_code: bytes,
                                 tree) -> list[Symbol]:

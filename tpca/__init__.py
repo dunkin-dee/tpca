@@ -33,6 +33,11 @@ from .pass2.output_chunker import OutputChunker
 from .pass2.output_writer import OutputWriter
 from .pass2.synthesis_agent import SynthesisAgent, SynthesisResult
 
+# Phase 3 — Fallback pipeline
+from .fallback.chunked_pipeline import ChunkedFallback
+from .fallback.reader_agent import ReaderAgent
+from .fallback.memory_store import AgentMemoryStore
+
 # Orchestrator
 from .orchestrator import TPCAOrchestrator
 
@@ -68,6 +73,12 @@ __all__ = [
     "OutputWriter",
     "SynthesisAgent",
     "SynthesisResult",
+    # Phase 3 — Fallback
+    "ChunkedFallback",
+    "ReaderAgent",
+    "AgentMemoryStore",
     # Orchestrator
     "TPCAOrchestrator",
 ]
+
+__version__ = "3.0.0"
