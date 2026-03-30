@@ -40,7 +40,7 @@
 (lexical_declaration
   (variable_declarator
     name: (identifier) @function.name
-    value: (function
+    value: (function_expression
       parameters: (formal_parameters) @function.params
       body: (statement_block) @function.body)))
 
