@@ -8,17 +8,19 @@
 #   pip install tree-sitter-python networkx
 
 # ── Pass 1 — AST Indexing ────────────────────────────────────────────────────
-tree-sitter>=0.21.0
-tree-sitter-python>=0.21.0
+tree-sitter>=0.25.0
+tree-sitter-python>=0.25.0
 
 # ── NEW (Phase 3) — Multi-Language Parsing ───────────────────────────────────
 # Install to enable JavaScript / TypeScript / TSX indexing.
 # Python-only setups can omit these; the indexer degrades gracefully.
-tree-sitter-javascript>=0.21.0
-tree-sitter-typescript>=0.21.0
+tree-sitter-javascript>=0.23.0
+tree-sitter-typescript>=0.23.0
 
 # ── Graph construction and ranking ───────────────────────────────────────────
 networkx>=3.0
+numpy==2.4.3
+scipy==1.17.1
 
 # ── Pass 2 — LLM Client ──────────────────────────────────────────────────────
 anthropic>=0.25.0
