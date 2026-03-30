@@ -1,5 +1,7 @@
 .pytest_cache/
-.tpca_cache*
+.tpca_cache/
+.tpca_cache_phase3/
+tpca_phase3_output/
 *.log
 
 __pycache__/
