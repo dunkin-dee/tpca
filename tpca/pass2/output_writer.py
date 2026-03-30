@@ -209,3 +209,8 @@ class OutputWriter:
     def load_manifest(cls, path: str) -> OutputManifest:
         """Load a manifest from disk for the resume path in TPCAOrchestrator."""
         return OutputManifest.load(path)
+    
+    @property
+    def manifest(self) -> OutputManifest:
+        """Public accessor for the current manifest."""
+        return self._manifest
