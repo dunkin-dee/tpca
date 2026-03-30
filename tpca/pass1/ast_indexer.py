@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Union
 import tree_sitter_python as tspython
-from tree_sitter import Language, Parser
+from tree_sitter import Language, Parser, Query, QueryCursor
 
 from ..config import TPCAConfig
 from ..logging import StructuredLogger
@@ -19,7 +19,8 @@ try:
     print("JS/TS parser available")
     _JS_LANGUAGE = Language(_tsjs.language())
     _JS_AVAILABLE = True
-except Exception:
+except Exception as e:
+    print(f"Error loading JS parser: {e}")
     _JS_LANGUAGE = None
     _JS_AVAILABLE = False
 
@@ -29,7 +30,8 @@ try:
     _TS_LANGUAGE  = Language(_tsts.language_typescript())
     _TSX_LANGUAGE = Language(_tsts.language_tsx())
     _TSTYPE_AVAILABLE = True
-except Exception:
+except Exception as e:
+    print(f"Error loading TypeScript parser: {e}")
     _TS_LANGUAGE  = None
     _TSX_LANGUAGE = None
     _TSTYPE_AVAILABLE = False
@@ -58,14 +60,13 @@ class ASTIndexer:
         self.cache = cache
         
         # Initialize Tree-sitter parser for Python
-        PY_LANGUAGE = Language(tspython.language(), 'python')
-        self.parser = Parser()
-        self.parser.set_language(PY_LANGUAGE)        
+        PY_LANGUAGE = Language(tspython.language())
+        self.parser = Parser(PY_LANGUAGE)   
         # Load query for Python
         query_file = Path(__file__).parent / 'queries' / 'python.scm'
         with open(query_file, 'r') as f:
             query_text = f.read()
-        self.query = PY_LANGUAGE.query(query_text)
+        self.query = Query(PY_LANGUAGE, query_text)
     
     def index(self, source: Union[str, list[str]]) -> list[Symbol]:
         """
@@ -221,6 +222,8 @@ class ASTIndexer:
 
     def _parse_javascript(self, path: str, source: bytes) -> list[Symbol]:
         if not _JS_AVAILABLE or _JS_LANGUAGE is None:
+            print(_JS_LANGUAGE)
+            print(_JS_AVAILABLE)
             self.logger.warn(
                 'js_parser_unavailable', file=path,
                 hint='pip install tree-sitter-javascript',
@@ -250,10 +253,10 @@ class ASTIndexer:
         import re
         symbols: list[Symbol] = []
         rel_path = self._make_relative_path(path)
-        captures = query.captures(tree.root_node)
+        # captures = self.query.captures(tree.root_node)
 
         by_name: dict[str, list] = {}
-        for node, cap_name in captures:
+        for node, cap_name in self._run_query(query, tree.root_node):
             by_name.setdefault(cap_name, []).append(node)
 
         jsdoc_map = self._build_jsdoc_map(by_name.get('docstring.candidate', []))
@@ -339,7 +342,7 @@ class ASTIndexer:
         func_node = self._find_ancestor(name_node, ancestor_types)
         if not func_node:
             return None
-        actual = self._find_descendant(func_node, {'function_declaration', 'arrow_function', 'function'})
+        actual = self._find_descendant(func_node, {'function_declaration', 'arrow_function', 'function_expression'})
         target = actual or func_node
         params = self._extract_js_params(target)
         ret = self._extract_js_return_type(target)
@@ -432,6 +435,19 @@ class ASTIndexer:
             queue.extend(child.children)
         return None
 
+    @staticmethod
+    def _run_query(query, node) -> list[tuple]:
+        """Execute a Query against a node using QueryCursor (tree-sitter 0.22+).
+        Returns a list of (node, capture_name) tuples."""
+        cursor = QueryCursor(query)
+        result = []
+        for _pattern_idx, match in cursor.matches(node):
+            for cap_name, cap_nodes in match.items():
+                nodes = cap_nodes if isinstance(cap_nodes, list) else [cap_nodes]
+                for n in nodes:
+                    result.append((n, cap_name))
+        return result
+
     def _get_js_query(self, lang: str, language_obj):
         """Load and cache the Tree-sitter query for a JS/TS language."""
         cache_key = f'_js_query_{lang}'
@@ -440,10 +456,10 @@ class ASTIndexer:
             if not query_file.exists() and lang == 'tsx':
                 query_file = Path(__file__).parent / 'queries' / 'typescript.scm'
             if query_file.exists():
-                q = language_obj.query(query_file.read_text())
+                q = Query(language_obj, query_file.read_text())
             else:
                 self.logger.warn('js_query_file_missing', language=lang, path=str(query_file))
-                q = language_obj.query('(identifier) @noop')
+                q = Query(language_obj, '(identifier) @noop')
             setattr(self, cache_key, q)
         return getattr(self, cache_key)
     
@@ -466,14 +482,18 @@ class ASTIndexer:
         # Get source lines for extracting text
         source_lines = source_code.decode('utf-8').split('\n')
         
-        # Query the tree — returns [(node, capture_name), ...] in 0.21.x
-        captures = self.query.captures(tree.root_node)
-        
+        # Query the tree — returns [(node, capture_name), ...] in 0.21.x        
         # Track context for methods
         current_class = None
         class_stack = []
+
+        all_captures = sorted(
+            self._run_query(self.query, tree.root_node),
+            key=lambda x: x[0].start_point,
+        )
+
         
-        for node, capture_name in captures:
+        for node, capture_name in all_captures:
             try:
                 if capture_name == 'class.def':
                     sym = self._extract_class(node, rel_path, source_lines)
@@ -492,7 +512,7 @@ class ASTIndexer:
             except Exception as e:
                 self.logger.debug('symbol_extraction_error',
                                 file=filepath, capture=capture_name, error=str(e))
-        
+    
         return symbols
         
     def _extract_class(self, node, filepath: str, source_lines: list[str]) -> Symbol:

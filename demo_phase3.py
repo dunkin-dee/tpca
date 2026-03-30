@@ -65,7 +65,7 @@ def main():
     api_key = os.environ.get('ANTHROPIC_API_KEY')
 
     print(f'📋 Task:        {task[:75]}{"..." if len(task) > 75 else ""}')
-    print(f'🔑 LLM:         {"✅ Anthropic" if api_key else "❌ None (Pass 1 only)"}')
+    print(f'🔑 LLM:         {"✅ Anthropic" if api_key else "✅ Ollama (qwen2.5-coder:14B)"}')
     print(f'🔁 Resume mode: {"✅ Yes" if do_resume else "❌ No (fresh run)"}')
     print()
 
@@ -82,6 +82,8 @@ def main():
         model_context_window=8192,
         context_budget_pct=0.65,
         provider='anthropic' if api_key else 'ollama',
+        ollama_reader_model='qwen2.5-coder:14B',
+        ollama_synthesis_model='qwen2.5-coder:14B',
         output_mode='mirror',                 # Phase 3: mirror mode
         output_dir=output_dir,
         fallback_enabled=True,                # Phase 3: fallback active
@@ -166,7 +168,9 @@ def main():
     # ── SECTION 2: Mirror Output Mode ─────────────────────────────────────────
     section('PASS 2 — Mirror Output Mode  (output/ mirrors src/)')
 
-    if not api_key:
+    has_llm = bool(api_key) or config.provider == "ollama"
+
+    if not has_llm:
         print('  ⚠️  No ANTHROPIC_API_KEY — demonstrating mirror mode structure only.')
         _demo_mirror_structure(config, output_dir)
         _demo_manifest_structure(manifest_path)
