@@ -4,6 +4,7 @@ Version: 0.1.0.dev1
 Summary: Two-Pass Context Agent - AST-Driven, Graph-Ranked Context Retrieval
 Requires-Python: >=3.8
 Requires-Dist: tree-sitter>=0.20.0
+Requires-Dist: click>=8.0.0
 Provides-Extra: dev
 Requires-Dist: pytest>=7.0.0; extra == "dev"
 Requires-Dist: pytest-cov>=4.0.0; extra == "dev"

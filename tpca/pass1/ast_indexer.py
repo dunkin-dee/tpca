@@ -16,22 +16,18 @@ from ..models import Symbol
 # These are graceful: Python-only installs work fine without them.
 try:
     import tree_sitter_javascript as _tsjs
-    print("JS/TS parser available")
     _JS_LANGUAGE = Language(_tsjs.language())
     _JS_AVAILABLE = True
 except Exception as e:
-    print(f"Error loading JS parser: {e}")
     _JS_LANGUAGE = None
     _JS_AVAILABLE = False
 
 try:
     import tree_sitter_typescript as _tsts
-    print("TypeScript parser available")
     _TS_LANGUAGE  = Language(_tsts.language_typescript())
     _TSX_LANGUAGE = Language(_tsts.language_tsx())
     _TSTYPE_AVAILABLE = True
 except Exception as e:
-    print(f"Error loading TypeScript parser: {e}")
     _TS_LANGUAGE  = None
     _TSX_LANGUAGE = None
     _TSTYPE_AVAILABLE = False

@@ -9,6 +9,8 @@
    requires-python = ">=3.8"
    dependencies = [
        "tree-sitter>=0.20.0",
+       "click>=8.0.0",
+       "prompt_toolkit>=3.0",
    ]
 
    [project.optional-dependencies]
@@ -16,6 +18,9 @@
        "pytest>=7.0.0",
        "pytest-cov>=4.0.0",
    ]
+
+   [project.scripts]
+   tpca = "tpca.cli.main:main"
 
    [tool.setuptools.packages.find]
    where = ["."]
