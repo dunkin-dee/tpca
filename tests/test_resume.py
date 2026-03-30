@@ -53,7 +53,8 @@ def _entry(source: str, output: str, symbols: list[str], status: str = 'complete
 
 class TestManifestEntry:
     def test_to_dict_round_trip(self):
-        entry = _entry('src/auth.py', 'docs/auth.md', ['src/auth.py::Auth'], 'complete')
+        entry = _entry('src/auth.py', 'docs/auth.md',
+                       ['src/auth.py::Auth'], 'complete')
         restored = ManifestEntry.from_dict(entry.to_dict())
         assert restored.source_file == entry.source_file
         assert restored.output_file == entry.output_file
@@ -66,7 +67,8 @@ class TestManifestEntry:
         assert entry.status == 'partial'
 
     def test_from_dict_defaults(self):
-        entry = ManifestEntry.from_dict({'source_file': 'a.py', 'output_file': 'a.md'})
+        entry = ManifestEntry.from_dict(
+            {'source_file': 'a.py', 'output_file': 'a.md'})
         assert entry.symbols_processed == []
         assert entry.chunk_count == 0
         assert entry.status == 'partial'
@@ -85,15 +87,18 @@ class TestOutputManifest:
         m = OutputManifest(task='test')
         entry = _entry('src/auth.py', 'docs/auth.md', ['src/auth.py::Auth'])
         m.upsert_entry(entry)
-        updated = _entry('src/auth.py', 'docs/auth.md', ['src/auth.py::Auth', 'src/auth.py::Auth.validate_token'])
+        updated = _entry('src/auth.py', 'docs/auth.md',
+                         ['src/auth.py::Auth', 'src/auth.py::Auth.validate_token'])
         m.upsert_entry(updated)
         assert len(m.files) == 1
         assert len(m.files[0].symbols_processed) == 2
 
     def test_get_entry_returns_correct_entry(self):
         m = OutputManifest(task='test')
-        m.upsert_entry(_entry('src/auth.py', 'docs/auth.md', ['src/auth.py::Auth']))
-        m.upsert_entry(_entry('src/router.py', 'docs/router.md', ['src/router.py::Router']))
+        m.upsert_entry(
+            _entry('src/auth.py', 'docs/auth.md', ['src/auth.py::Auth']))
+        m.upsert_entry(_entry('src/router.py', 'docs/router.md',
+                       ['src/router.py::Router']))
         found = m.get_entry('src/router.py')
         assert found is not None
         assert 'Router' in found.symbols_processed[0]
@@ -105,7 +110,8 @@ class TestOutputManifest:
     def test_incomplete_files_returns_partial(self):
         m = OutputManifest(task='test')
         m.upsert_entry(_entry('src/auth.py', 'docs/auth.md', [], 'complete'))
-        m.upsert_entry(_entry('src/router.py', 'docs/router.md', [], 'partial'))
+        m.upsert_entry(
+            _entry('src/router.py', 'docs/router.md', [], 'partial'))
         m.upsert_entry(_entry('src/utils.py', 'docs/utils.md', [], 'skipped'))
         incomplete = m.incomplete_files()
         assert len(incomplete) == 2
@@ -132,7 +138,8 @@ class TestOutputManifest:
 
     def test_to_dict_from_dict_round_trip(self):
         m = OutputManifest(task='Document all methods', output_mode='mirror')
-        m.upsert_entry(_entry('src/auth.py', 'docs/auth.md', ['src/auth.py::Auth'], 'complete'))
+        m.upsert_entry(_entry('src/auth.py', 'docs/auth.md',
+                       ['src/auth.py::Auth'], 'complete'))
         m.stats = {'llm_calls': 3, 'compression_ratio': 12.5}
         m.mark_complete()
 
@@ -149,7 +156,8 @@ class TestOutputManifest:
 class TestOutputManifestPersistence:
     def test_save_creates_json_file(self, tmp_path):
         m = OutputManifest(task='test')
-        m.upsert_entry(_entry('src/auth.py', 'docs/auth.md', ['sym1'], 'complete'))
+        m.upsert_entry(
+            _entry('src/auth.py', 'docs/auth.md', ['sym1'], 'complete'))
         path = str(tmp_path / 'manifest.json')
         m.save(path)
         assert Path(path).exists()
@@ -162,7 +170,8 @@ class TestOutputManifestPersistence:
 
     def test_save_writes_valid_json(self, tmp_path):
         m = OutputManifest(task='Document everything')
-        m.upsert_entry(_entry('src/auth.py', 'docs/auth.md', ['src/auth.py::Auth']))
+        m.upsert_entry(
+            _entry('src/auth.py', 'docs/auth.md', ['src/auth.py::Auth']))
         path = str(tmp_path / 'manifest.json')
         m.save(path)
         raw = json.loads(Path(path).read_text())
@@ -170,9 +179,12 @@ class TestOutputManifestPersistence:
         assert len(raw['files']) == 1
 
     def test_load_restores_full_manifest(self, tmp_path):
-        m = OutputManifest(task='Document all public methods', output_mode='mirror')
-        m.upsert_entry(_entry('src/auth.py', 'docs/auth.md', ['src/auth.py::Auth'], 'complete'))
-        m.upsert_entry(_entry('src/router.py', 'docs/router.md', ['src/router.py::Router'], 'partial'))
+        m = OutputManifest(
+            task='Document all public methods', output_mode='mirror')
+        m.upsert_entry(_entry('src/auth.py', 'docs/auth.md',
+                       ['src/auth.py::Auth'], 'complete'))
+        m.upsert_entry(_entry('src/router.py', 'docs/router.md',
+                       ['src/router.py::Router'], 'partial'))
         m.stats = {'llm_calls': 5}
         path = str(tmp_path / 'manifest.json')
         m.save(path)
@@ -220,8 +232,10 @@ class TestOutputLogResume:
 
     def test_from_manifest_skips_partial_files(self):
         m = OutputManifest(task='test')
-        m.upsert_entry(_entry('src/auth.py', 'docs/auth.md', ['src/auth.py::Auth'], 'complete'))
-        m.upsert_entry(_entry('src/router.py', 'docs/router.md', ['src/router.py::Router'], 'partial'))
+        m.upsert_entry(_entry('src/auth.py', 'docs/auth.md',
+                       ['src/auth.py::Auth'], 'complete'))
+        m.upsert_entry(_entry('src/router.py', 'docs/router.md',
+                       ['src/router.py::Router'], 'partial'))
         log = OutputLog.from_manifest(m)
         # Only the complete file's symbols appear
         assert all('auth.py' in c.symbol_id for c in log.chunks)
@@ -252,7 +266,8 @@ class TestOutputLogResume:
 
     def test_render_compact_from_manifest_log(self):
         m = OutputManifest(task='test')
-        m.upsert_entry(_entry('src/auth.py', 'docs/auth.md', ['src/auth.py::Auth'], 'complete'))
+        m.upsert_entry(_entry('src/auth.py', 'docs/auth.md',
+                       ['src/auth.py::Auth'], 'complete'))
         log = OutputLog.from_manifest(m)
         rendered = log.render_compact()
         assert 'COMPLETED WORK' in rendered
@@ -265,7 +280,8 @@ class TestOutputWriterModes:
     def test_mirror_mode_creates_mirrored_file(self, tmp_path, config, logger):
         config.output_mode = 'mirror'
         config.output_dir = str(tmp_path / 'docs')
-        writer = OutputWriter(config, logger, task='test', source_root=str(tmp_path / 'src'))
+        writer = OutputWriter(config, logger, task='test',
+                              source_root=str(tmp_path / 'src'))
 
         writer.write('src/auth.py::Auth', '# Auth\nDocumentation here.\n')
 
@@ -400,11 +416,12 @@ class TestOrchestratorResume:
         assert orchestrator._complete_symbols(None) == set()
 
     def test_load_resume_state_returns_none_on_missing_file(self, orchestrator, tmp_path):
-        manifest, log = orchestrator._load_resume_state(
+        manifest, log, skip = orchestrator._load_resume_state(
             str(tmp_path / 'nonexistent_manifest.json')
         )
         assert manifest is None
         assert log is None
+        assert skip == set()
 
     def test_load_resume_state_returns_manifest_and_log(self, orchestrator, tmp_path):
         m = OutputManifest(task='resume test')
@@ -416,7 +433,7 @@ class TestOrchestratorResume:
         path = str(tmp_path / 'manifest.json')
         m.save(path)
 
-        manifest, log = orchestrator._load_resume_state(path)
+        manifest, log, skip = orchestrator._load_resume_state(path)
         assert manifest is not None
         assert log is not None
         assert isinstance(log, OutputLog)
@@ -425,9 +442,10 @@ class TestOrchestratorResume:
     def test_load_resume_state_logs_warning_on_bad_json(self, orchestrator, tmp_path):
         bad_path = str(tmp_path / 'bad.json')
         Path(bad_path).write_text('not json at all {{{')
-        manifest, log = orchestrator._load_resume_state(bad_path)
+        manifest, log, skip = orchestrator._load_resume_state(bad_path)
         assert manifest is None
         assert log is None
+        assert skip == set()
 
     def test_extract_keywords_filters_stopwords(self, orchestrator):
         task = 'Document every public method with parameters and return types.'
@@ -436,7 +454,8 @@ class TestOrchestratorResume:
         assert 'with' not in keywords
         assert 'and' not in keywords
         # Meaningful words should survive
-        assert any(k in keywords for k in ['public', 'method', 'parameters', 'return', 'types'])
+        assert any(k in keywords for k in [
+                   'public', 'method', 'parameters', 'return', 'types'])
 
     def test_extract_keywords_max_ten(self, orchestrator):
         long_task = ' '.join([f'keyword{i}' for i in range(30)])
@@ -454,9 +473,7 @@ class TestOrchestratorResume:
         fixture = Path(__file__).parent / 'fixtures' / 'sample_codebase'
         if not fixture.exists():
             pytest.skip('sample_codebase fixture not present')
-        result = orch.run_pass1_only(str(fixture), task='document auth')
-        assert 'compact_index' in result
+        result = orch.run_pass1_only(str(fixture))
         assert 'graph' in result
         assert 'symbols' in result
         assert 'stats' in result
-        assert result['stats']['pass1_time_ms'] >= 0

@@ -359,7 +359,8 @@ export function Button({ label }: { label: string }) {
         py_file = tmp_path / 'module.py'
         py_file.write_text('def helper(): pass\n')
         ts_file = tmp_path / 'service.ts'
-        ts_file.write_text('export function greet(name: string): string { return name; }\n')
+        ts_file.write_text(
+            'export function greet(name: string): string { return name; }\n')
 
         symbols = indexer.index(str(tmp_path))
         langs = {s.file.rsplit('.', 1)[-1] for s in symbols}
@@ -386,7 +387,7 @@ class TestDirectoryWalk:
         indexer = ASTIndexer(config, logger, cache=None)
 
         paths = indexer._walk_directory(tmp_path)
-        assert not any('node_modules' in p for p in paths)
+        assert not any('lib.js' in p for p in paths)
         assert any('main.js' in p for p in paths)
 
     def test_excludes_dist_folder(self, tmp_path):
@@ -400,7 +401,8 @@ class TestDirectoryWalk:
         indexer = ASTIndexer(config, logger, cache=None)
 
         paths = indexer._walk_directory(tmp_path)
-        assert not any('dist' in p for p in paths)
+        assert not any('bundle.js' in p for p in paths)
+        assert any('index.js' in p for p in paths)
 
     def test_mixed_py_and_js_only_returns_configured(self, tmp_path):
         config = _make_config(['python'])  # only python

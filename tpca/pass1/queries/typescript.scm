@@ -22,12 +22,12 @@
 ; ── Interface declarations ────────────────────────────────────────────────────
 (interface_declaration
   name: (type_identifier) @interface.name
-  body: (object_type) @interface.body)
+  body: (interface_body) @interface.body)
 
 (export_statement
   declaration: (interface_declaration
     name: (type_identifier) @interface.name
-    body: (object_type) @interface.body))
+    body: (interface_body) @interface.body))
 
 ; ── Type aliases ──────────────────────────────────────────────────────────────
 (type_alias_declaration

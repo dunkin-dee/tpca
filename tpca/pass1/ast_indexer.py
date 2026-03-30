@@ -107,6 +107,10 @@ class ASTIndexer:
         
         return symbols
     
+    def _walk_directory(self, directory: str) -> list[str]:
+        """Walk a directory and return list of file paths, respecting exclusions."""
+        return self._resolve_paths(directory)
+
     def _resolve_paths(self, source: Union[str, list[str]]) -> list[str]:
         """
         Resolve input to list of file paths.
@@ -142,7 +146,7 @@ class ASTIndexer:
                     if self._detect_language(str(filepath)) in self.config.languages:
                         files.append(str(filepath.resolve()))
             
-            self.logger.info('directory_walk', path=source, files_found=len(files))
+            self.logger.info('directory_walk', path=str(source), files_found=len(files))
             return files
         
         return []

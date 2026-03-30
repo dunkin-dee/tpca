@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 
 
 @dataclass
@@ -56,7 +57,8 @@ class OutputLog:
             return ""
         lines = ["## COMPLETED WORK (do not repeat — reference only)"]
         for entry in self.entries:
-            lines.append(f"[{entry.chunk_id}] {entry.symbol_id}  →  {entry.summary}")
+            lines.append(
+                f"[{entry.chunk_id}] {entry.symbol_id}  →  {entry.summary}")
         return "\n".join(lines)
 
     def total_tokens(self) -> int:
@@ -87,7 +89,8 @@ class OutputLog:
                         symbol_id=sym_id,
                         summary=f"Previously completed — see {entry.output_file}.",
                         status="complete",
-                        token_count=entry.token_count // max(len(entry.symbols_processed), 1),
+                        token_count=entry.token_count // max(
+                            len(entry.symbols_processed), 1),
                     ))
                     chunk_id += 1
         return log
@@ -181,6 +184,7 @@ class OutputManifest:
         }
 
     def save(self, path: str) -> None:
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w") as f:
             json.dump(self.to_dict(), f, indent=2)
 

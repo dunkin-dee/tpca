@@ -63,7 +63,7 @@ class OutputWriter:
         self._symbol_to_file[symbol_id] = output_path
 
         if self._mode == "inline":
-            self._inline_buffer.setdefault(str(output_path), []).append(raw_output)
+            self._inline_buffer.setdefault(symbol_id, []).append(raw_output)
             self._logger.debug(
                 "output_inline", symbol_id=symbol_id, chars=len(raw_output)
             )
@@ -152,8 +152,9 @@ class OutputWriter:
 
         elif self._mode == "per_symbol":
             # One file per symbol (sanitised name)
-            safe_name = symbol_id.replace("/", "_").replace("::", "__").replace(" ", "_")
-            return self._output_dir / f"{safe_name}.md"
+            safe_name = symbol_id.replace(
+                "/", "_").replace("::", "__").replace(" ", "_")
+            return self._output_dir / "symbols" / f"{safe_name}.md"
 
         else:  # inline
             return Path("inline") / f"{stem}.md"
@@ -209,7 +210,7 @@ class OutputWriter:
     def load_manifest(cls, path: str) -> OutputManifest:
         """Load a manifest from disk for the resume path in TPCAOrchestrator."""
         return OutputManifest.load(path)
-    
+
     @property
     def manifest(self) -> OutputManifest:
         """Public accessor for the current manifest."""
