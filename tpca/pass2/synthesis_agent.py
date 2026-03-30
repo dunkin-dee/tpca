@@ -284,7 +284,7 @@ class SynthesisAgent:
         task_pattern = re.compile(r"\[TASK_COMPLETE\]", re.IGNORECASE)
 
         # Try SECTION_COMPLETE marker
-        match = section_pattern.search(response_text)
+        match = section_pattern.search(response_text)           
         if match:
             summary = match.group(1).strip()
             raw_output = response_text[: match.start()].strip()
