@@ -2,101 +2,75 @@
 
 ## Overview
 
-Phase 2 adds the LLM-driven synthesis pipeline on top of the Phase 1 foundation.
-The system now runs end-to-end: from source files → compact index → targeted symbol
-selection → source slice retrieval → chunked synthesis → output.
+Phase 2 adds the LLM-driven synthesis pipeline on top of the Phase 1 foundation. The system runs end-to-end: source files -> compact index -> targeted symbol selection -> source slice retrieval -> chunked synthesis -> output.
 
-**Phase 2 Goal**: End-to-end pipeline for tasks that fit in a single or multi-call
-synthesis session, with bounded context regardless of output size.
+**Goal**: End-to-end pipeline for tasks that fit in a single or multi-call synthesis session, with bounded context regardless of output size.
 
-## What Was Implemented
+## Components Implemented
 
-### ✅ New Components
+### LLMClient (`tpca/llm/client.py`)
+- Provider-agnostic wrapper: Anthropic Claude or Ollama (via OpenAI-compatible API)
+- `TokenCounter`: tiktoken-accurate counting (cl100k_base) with 4-char/token fallback
+- Exponential backoff retry logic
+- Structured logging of all API calls (prompt tokens, output tokens, latency)
 
-1. **LLMClient** (`tpca/llm/client.py`)
-   - Provider-agnostic API wrapper (Anthropic Claude or Ollama)
-   - tiktoken-accurate token counting (cl100k_base)
-   - Exponential backoff retry logic (configurable max_retries)
-   - Structured logging of all API calls (prompt tokens, output tokens, latency)
-   - `TokenCounter` helper usable standalone
+### ContextPlanner (`tpca/pass2/context_planner.py`)
+- Sends compact Pass 1 index + task to the reader model
+- Parses JSON `SliceRequest` from LLM response (strips markdown fences)
+- Validates all symbol IDs against the actual SymbolGraph
+- Retries with edit-distance suggestions for unknown symbol IDs
+- Falls back to top CORE symbols by PageRank after `max_planner_retries`
 
-2. **ContextPlanner** (`tpca/pass2/context_planner.py`)
-   - Shows the LLM the compact Pass 1 index and asks what it needs
-   - Parses JSON SliceRequest from LLM response (strips markdown fences)
-   - Validates all symbol IDs against the actual SymbolGraph
-   - Retries with edit-distance suggestions for unknown symbol IDs
-   - Falls back to top CORE symbols by PageRank after max_retries
+### SliceFetcher (`tpca/pass2/slice_fetcher.py`)
+- Reads exact source lines for each requested symbol using file paths from Symbol
+- tiktoken-accurate budget enforcement; respects `context_budget_pct * model_context_window`
+- Primary symbols always included (truncated to signature-only if over budget)
+- Supporting symbols included greedily while budget permits
 
-3. **SliceFetcher** (`tpca/pass2/slice_fetcher.py`)
-   - Reads exact source lines for each requested symbol using file paths from Symbol
-   - tiktoken-accurate budget enforcement per slice
-   - Primary symbols always included (truncated to signature-only if over budget)
-   - Supporting symbols included greedily while budget permits
-   - Formats slices into readable prompt block for synthesis
+### OutputChunker (`tpca/pass2/output_chunker.py`)
+- Derives processing order from SymbolGraph topological sort; falls back to PageRank order on cycles
+- Maintains `OutputLog` as bounded working memory (~50-100 tokens/entry)
+- Each `ChunkPlan` carries only the OutputLog, not full prior output — context stays O(chunks)
+- Already-completed symbols (from prior OutputLog) are skipped at `get_next_chunk()`
 
-4. **OutputChunker** (`tpca/pass2/output_chunker.py`)
-   - Derives processing order from SymbolGraph topological sort
-   - Falls back to PageRank order if graph has cycles
-   - Maintains OutputLog as bounded working memory (~50–100 tokens/entry)
-   - Each ChunkPlan carries only the OutputLog, not full prior output
-   - Resumable: already-completed symbols (from prior OutputLog) are skipped
-   - Groups class methods with their parent class
+### OutputWriter (`tpca/pass2/output_writer.py`)
+- Four output modes: `inline`, `single_file`, `mirror`, `per_symbol`
+- Builds `OutputManifest` with per-file status tracking
 
-5. **OutputWriter** (`tpca/pass2/output_writer.py`)
-   - Supports four output modes:
-     - `inline` — in-memory dict (for testing and API use)
-     - `single_file` — all output in `output_dir/output.md`
-     - `mirror` — output tree mirrors source directory structure
-     - `per_symbol` — one file per symbol
-   - Builds OutputManifest with per-file status tracking
+### SynthesisAgent (`tpca/pass2/synthesis_agent.py`)
+- Drives the full synthesis loop: plan -> fetch -> chunk -> synthesize -> write
+- Bounded by `max_synthesis_iterations` (default 20)
+- Returns `SynthesisResult` with output dict, `OutputLog`, manifest, and stats
 
-6. **SynthesisAgent** (`tpca/pass2/synthesis_agent.py`)
-   - Drives the full synthesis loop: plan → fetch → chunk → synthesise → write
-   - Bounded by `max_synthesis_iterations` (default 20)
-   - Extracts `[SECTION_COMPLETE: ...]` and `[TASK_COMPLETE]` markers
-   - Returns SynthesisResult with output, OutputLog, manifest, and stats
+### TPCAOrchestrator (`tpca/orchestrator.py`)
+- Single entry point wiring all Phase 1 and Phase 2 components
+- `run(source, task)`: full two-pass pipeline
+- `run_pass1_only(source)`: indexing only, zero LLM
+- Gracefully skips Pass 2 and warns when LLM is unavailable
 
-7. **TPCAOrchestrator** (`tpca/orchestrator.py`)
-   - Single entry point wiring all Phase 1 and Phase 2 components
-   - `run(source, task)` — full two-pass pipeline
-   - `run_pass1_only(source)` — indexing only (zero LLM)
-   - Gracefully skips Pass 2 and warns when LLM is unavailable
-   - Extracts task keywords automatically if not provided
+### New Data Models
 
-### ✅ New Data Models
-
-8. **Slice / SliceRequest** (`tpca/models/slice.py`)
-   - `Slice`: a fetched code block with token count and truncation flag
-   - `SliceRequest`: the structured planner output (primary + supporting symbols)
-
-9. **OutputLog / OutputChunk / OutputManifest** (`tpca/models/output.py`)
-   - `OutputChunk`: one completed synthesis chunk with summary and token count
-   - `OutputLog`: collection of chunks with `render_compact()` for prompts
-   - `OutputManifest`: completion record with per-file entries; JSON serializable
-   - `ManifestEntry`: per-file tracking (source, output, chunks, status)
-
-10. **ChunkPlan** (`tpca/models/chunk_plan.py`)
-    - Work order for one synthesis call: symbol to process, prior log, context package
+- **`Slice` / `SliceRequest`** (`tpca/models/slice.py`): fetched code block with token count and truncation flag; structured planner output.
+- **`OutputChunk` / `OutputLog` / `OutputManifest`** (`tpca/models/output.py`): bounded working memory with `render_compact()` for prompts; completion record with per-file entries.
+- **`ChunkPlan`** (`tpca/models/chunk_plan.py`): work order for one synthesis call.
 
 ## New Files
 
 ```
 tpca/
-├── orchestrator.py                    # TPCAOrchestrator (top-level entry point)
+├── orchestrator.py
 ├── llm/
-│   ├── __init__.py
-│   └── client.py                      # LLMClient + TokenCounter
+│   └── client.py
 ├── pass2/
-│   ├── __init__.py
-│   ├── context_planner.py             # ContextPlanner + retry logic
-│   ├── slice_fetcher.py               # SliceFetcher + budget management
-│   ├── output_chunker.py              # OutputChunker + topo ordering
-│   ├── output_writer.py               # OutputWriter (4 modes)
-│   └── synthesis_agent.py             # SynthesisAgent + synthesis loop
+│   ├── context_planner.py
+│   ├── slice_fetcher.py
+│   ├── output_chunker.py
+│   ├── output_writer.py
+│   └── synthesis_agent.py
 └── models/
-    ├── slice.py                        # Slice, SliceRequest
-    ├── output.py                       # OutputLog, OutputChunk, OutputManifest
-    └── chunk_plan.py                   # ChunkPlan
+    ├── slice.py
+    ├── output.py
+    └── chunk_plan.py
 
 tests/
 ├── test_llm_client.py
@@ -106,48 +80,22 @@ tests/
 └── test_synthesis_agent.py
 
 demo_phase2.py
-requirements.txt                        # Updated with anthropic, tiktoken
-PHASE2_SUMMARY.md
 ```
 
-### ✅ Updated Files
-
-- `tpca/config.py` — Added Phase 2 config fields (LLM models, output mode, etc.)
-- `tpca/__init__.py` — Exports all Phase 2 symbols
-- `requirements.txt` — Added `anthropic>=0.25.0`, `tiktoken>=0.6.0`, and `openai>=1.0.0`
-
-## Installation & Usage
-
-### Install Dependencies
+## Usage
 
 ```bash
-pip install tree-sitter-python networkx anthropic tiktoken openai
-```
-
-### Quick Start (with Anthropic Claude)
-
-```bash
+# Anthropic
 export ANTHROPIC_API_KEY=sk-ant-...
 python demo_phase2.py
-```
 
-### Quick Start (with Ollama)
-
-```bash
-# Install Ollama and pull a model
+# Ollama
 ollama pull qwen2.5-coder:14B
-
-# Run demo (will auto-detect Ollama if no ANTHROPIC_API_KEY)
 python demo_phase2.py
+
+# All tests (LLM calls mocked — no API key needed)
+pytest tests/ -v
 ```
-
-### Quick Start (Pass 1 only — no API key needed)
-
-```bash
-python demo_phase2.py
-```
-
-### Orchestrator API
 
 ```python
 from tpca import TPCAOrchestrator, TPCAConfig, LogConfig
@@ -155,123 +103,58 @@ from tpca import TPCAOrchestrator, TPCAConfig, LogConfig
 config = TPCAConfig(
     synthesis_model='claude-sonnet-4-6',
     reader_model='claude-haiku-4-5-20251001',
-    output_mode='inline',         # or 'single_file', 'mirror', 'per_symbol'
+    output_mode='inline',
     output_dir='./docs',
-    log=LogConfig(console_level='INFO')
+    log=LogConfig(console_level='INFO'),
 )
 
-orchestrator = TPCAOrchestrator(config=config)
-result = orchestrator.run(
+result = TPCAOrchestrator(config=config).run(
     source='./my_project/src',
     task='Document every public method with parameters and return types.',
 )
 
 print(result['stats'])
 # {'pass1_time_ms': 187, 'llm_calls': 4, 'compression_ratio': 12.5, ...}
-
-print(result['output'])  # dict of {file: content} in inline mode
-print(result['log'])     # compact OutputLog
 ```
 
-### Component-Level Usage
+## Key Design Properties
 
-```python
-from tpca import (
-    TPCAConfig, StructuredLogger, LLMClient,
-    ASTIndexer, GraphBuilder, GraphRanker, IndexRenderer, IndexCache,
-    ContextPlanner, SliceFetcher, SynthesisAgent
-)
+### Bounded Context
+`OutputChunker` passes `OutputLog.render_compact()` (~50-100 tokens/entry) to each subsequent synthesis call, not the full prior output. Context size stays O(chunks), not O(output_size).
 
-config = TPCAConfig()
-logger = StructuredLogger(config.log)
-cache = IndexCache(config, logger)
-llm = LLMClient(config, logger)
+### Token Accuracy
+All budget management uses tiktoken (cl100k_base). The 4-chars/token approximation is used only as a fallback when tiktoken is unavailable.
 
-# Pass 1
-symbols = ASTIndexer(config, logger, cache).index('./src')
-graph = GraphBuilder(config, logger).build(symbols)
-graph = GraphRanker(config, logger).rank_symbols(graph, ['auth', 'token'])
-index = IndexRenderer(config, logger).render(graph)
+### Graceful Degradation
+- No LLM available: Pass 1 runs fully; Pass 2 is skipped with a warning.
+- LLM returns unknown symbol IDs: ContextPlanner retries with suggestions; falls back to top CORE symbols.
+- Source file missing: SliceFetcher returns a signature-only slice.
 
-# Pass 2
-planner = ContextPlanner(config, logger, llm)
-fetcher = SliceFetcher(config, logger, llm)
-agent = SynthesisAgent(config, logger, llm, planner, fetcher)
+## Performance
 
-result = agent.run(
-    task='Summarise the authentication system.',
-    compact_index=index,
-    graph=graph,
-)
-```
-
-### Run Tests
-
-```bash
-# All tests (no API key needed — all LLM calls are mocked)
-pytest tests/ -v
-
-# Phase 2 tests only
-pytest tests/test_context_planner.py tests/test_slice_fetcher.py \
-       tests/test_output_chunker.py tests/test_synthesis_agent.py \
-       tests/test_llm_client.py -v
-
-# Integration tests (requires ANTHROPIC_API_KEY or Ollama running)
-TPCA_RUN_INTEGRATION=1 pytest tests/ -v -m integration
-```
+- Pass 1: unchanged (<5 seconds for 50K-line codebase)
+- ContextPlanner: 1-3 reader-model calls
+- SliceFetcher: disk I/O only, <100ms for typical slice sets
+- Synthesis loop: 1 synthesis-model call per top-level symbol
+- Total LLM calls: approximately 2 + N (N = top-level symbols in scope)
 
 ## Design Compliance
 
 All Phase 2 requirements from Section 13 of the design document are met:
 
-✅ **LLM client** — tiktoken token counting, provider-agnostic, retry logic  
-✅ **ContextPlanner** — planning prompt, JSON validation, symbol validation with retry  
-✅ **SliceFetcher** — tiktoken-accurate budget management, truncation logic  
-✅ **OutputChunker** — logical boundary detection, OutputLog, synthesis loop  
-✅ **OutputWriter** — single_file and inline modes (mirror and per_symbol also included)  
-✅ **SynthesisAgent** — assembles context package, runs chunker loop, returns SynthesisResult  
-✅ **TPCAOrchestrator** — wires all components, handles LLM unavailability gracefully  
+- LLMClient: tiktoken token counting, provider-agnostic, retry logic
+- ContextPlanner: planning prompt, JSON validation, symbol validation with retry
+- SliceFetcher: tiktoken-accurate budget management, truncation logic
+- OutputChunker: logical boundary detection, OutputLog, synthesis loop
+- OutputWriter: all four modes (inline, single_file, mirror, per_symbol)
+- SynthesisAgent: assembles context package, runs chunker loop, returns SynthesisResult
+- TPCAOrchestrator: wires all components, handles LLM unavailability gracefully
 
-## Key Design Properties
+## Limitations Addressed in Phase 3
 
-### Bounded Context
-The OutputChunker passes `OutputLog.render_compact()` (~50-100 tokens/entry) to
-each subsequent synthesis call, not the full prior output. This keeps context
-size `O(chunks)` not `O(output_size)`.
+The following were intentional deferrals from Phase 2, resolved in Phase 3:
 
-### Token Accuracy  
-All budget management uses tiktoken (cl100k_base). The 4-chars/token
-approximation is only used as a fallback when tiktoken is unavailable.
-
-### Resumability
-OutputChunker checks `completed_symbols()` against the OutputLog at every
-`get_next_chunk()` call. If execution is interrupted and the OutputLog is
-reloaded from disk, already-completed symbols are automatically skipped.
-
-### Graceful Degradation
-- No LLM available (no API key + Ollama not running) → Pass 1 runs fully, Pass 2 is skipped with a clear warning
-- LLM returns unknown symbol IDs → ContextPlanner retries with suggestions
-- All retries fail → falls back to top CORE symbols by PageRank
-- Source file missing → SliceFetcher returns signature-only slice
-
-## Performance Characteristics
-
-- **Pass 1**: unchanged from Phase 1 (<5 seconds for 50K-line codebase)
-- **ContextPlanner**: 1–3 LLM calls (reader model, lightweight)
-- **SliceFetcher**: disk I/O only, <100ms for typical slice sets
-- **OutputChunker loop**: 1 LLM call per top-level symbol (synthesis model)
-- **Total LLM calls**: ~2 + N (where N = number of top-level symbols in scope)
-
-## Next Steps (Phase 3)
-
-- **OutputWriter**: mirror and per_symbol modes + OutputManifest write/resume
-- **ChunkedFallback**: ReaderAgent + AgentMemoryStore (reuses OutputLog)
-- **Multi-language**: JavaScript/TypeScript Tree-sitter queries
-- **Resume logic**: rehydrate OutputLog from manifest, restart partial files only
-
-## Known Limitations (by Design for Phase 2)
-
-1. **Single-language**: Python only (JavaScript/TypeScript in Phase 3)
-2. **No fallback pipeline**: ChunkedFallback not yet wired (Phase 3)
-3. **No manifest resume**: Restart is clean (Phase 3 adds resume)
-4. **mirror/per_symbol modes**: OutputWriter supports them, orchestrator uses inline/single_file
+- **Python only**: JS/TS support added via Tree-sitter queries
+- **No ChunkedFallback**: fallback pipeline added for over-budget subgraphs
+- **No manifest resume**: `OutputManifest.save/load` and `OutputLog.from_manifest` added
+- **mirror/per_symbol modes**: fully implemented with path safety and manifest writes
