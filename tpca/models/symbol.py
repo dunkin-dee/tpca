@@ -28,7 +28,8 @@ class Symbol:
     bases: list[str] = field(default_factory=list)  # base classes
     decorators: list[str] = field(default_factory=list)
     pagerank: float = 0.0      # filled by GraphRanker
-    
+    calls: list[str] = field(default_factory=list)  # callee names from body (duplicates = multiple sites)
+
     def __hash__(self):
         return hash(self.id)
     

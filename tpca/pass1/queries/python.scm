@@ -34,3 +34,7 @@
   (decorator (identifier) @decorator.name)
   definition: (function_definition
     name: (identifier) @decorated.function))
+
+; Module-level constant assignments (UPPER_CASE filtered in Python code)
+(module (expression_statement (assignment
+  left: (identifier) @constant.name)))

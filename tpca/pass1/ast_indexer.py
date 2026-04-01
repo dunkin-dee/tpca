@@ -232,7 +232,7 @@ class ASTIndexer:
         parser = Parser(_JS_LANGUAGE)
         tree = parser.parse(source)
         query = self._get_js_query('javascript', _JS_LANGUAGE)
-        return self._extract_js_symbols(path, source.decode('utf-8', errors='replace'), tree, query)
+        return self._extract_js_symbols(path, tree, query)
 
     def _parse_typescript(self, path: str, source: bytes, tsx: bool = False) -> list[Symbol]:
         lang_obj = _TSX_LANGUAGE if tsx else _TS_LANGUAGE
@@ -246,11 +246,10 @@ class ASTIndexer:
         parser = Parser(lang_obj)
         tree = parser.parse(source)
         query = self._get_js_query(lang_key, lang_obj)
-        return self._extract_js_symbols(path, source.decode('utf-8', errors='replace'), tree, query)
+        return self._extract_js_symbols(path, tree, query)
 
-    def _extract_js_symbols(self, path: str, source_text: str, tree, query) -> list[Symbol]:
+    def _extract_js_symbols(self, path: str, tree, query) -> list[Symbol]:
         """Extract classes, methods, functions (and TS interfaces/enums) from a JS/TS tree."""
-        import re
         symbols: list[Symbol] = []
         rel_path = self._make_relative_path(path)
         # captures = self.query.captures(tree.root_node)
@@ -463,56 +462,152 @@ class ASTIndexer:
             setattr(self, cache_key, q)
         return getattr(self, cache_key)
     
+    def _extract_calls_from_body(self, body_node) -> list[str]:
+        """
+        Recursively walk a function/method body node and return all called names.
+
+        Simple calls (foo()) yield the function name.
+        Attribute calls (self.bar(), obj.method()) yield the method name.
+        Built-in names are excluded — they will never resolve to project symbols.
+        """
+        _BUILTINS = frozenset({
+            'print', 'len', 'range', 'isinstance', 'type', 'str', 'int',
+            'float', 'list', 'dict', 'set', 'tuple', 'bool', 'super',
+            'hasattr', 'getattr', 'setattr', 'vars', 'enumerate', 'zip',
+            'map', 'filter', 'sorted', 'reversed', 'sum', 'min', 'max',
+            'open', 'iter', 'next', 'repr', 'format', 'any', 'all',
+        })
+
+        calls: list[str] = []
+
+        def walk(node):
+            if node.type == 'call':
+                func = node.child_by_field_name('function')
+                if func:
+                    if func.type == 'identifier':
+                        name = func.text.decode('utf-8')
+                        if name not in _BUILTINS:
+                            calls.append(name)
+                    elif func.type == 'attribute':
+                        attr = func.child_by_field_name('attribute')
+                        if attr:
+                            calls.append(attr.text.decode('utf-8'))
+            for child in node.children:
+                walk(child)
+
+        if body_node:
+            walk(body_node)
+        return calls
+
     def _extract_python_symbols(self, filepath: str, source_code: bytes,
                                 tree) -> list[Symbol]:
         """
         Extract symbols from Python AST.
-        
-        Args:
-            filepath: Path to source file
-            source_code: Raw bytes of source
-            tree: Tree-sitter parse tree
-        
-        Returns:
-            List of Symbol objects
+
+        Extracts: classes, functions/methods (with call lists),
+        module-level import statements, and module-level UPPER_CASE constants.
         """
         symbols = []
         rel_path = self._make_relative_path(filepath)
-        
-        # Get source lines for extracting text
         source_lines = source_code.decode('utf-8').split('\n')
-        
-        # Query the tree — returns [(node, capture_name), ...] in 0.21.x        
-        # Track context for methods
-        current_class = None
-        class_stack = []
+
+        class_stack: list[str] = []
+        processed_import_nodes: set[int] = set()
+        processed_constant_nodes: set[int] = set()
 
         all_captures = sorted(
             self._run_query(self.query, tree.root_node),
             key=lambda x: x[0].start_point,
         )
 
-        
         for node, capture_name in all_captures:
             try:
                 if capture_name == 'class.def':
                     sym = self._extract_class(node, rel_path, source_lines)
                     if sym:
                         symbols.append(sym)
-                        current_class = sym.name
                         class_stack.append(sym.name)
-                
+
                 elif capture_name == 'function.def':
-                    # Determine if it's a method or standalone function
                     parent_class = class_stack[-1] if class_stack else None
                     sym = self._extract_function(node, rel_path, source_lines, parent_class)
                     if sym:
                         symbols.append(sym)
-            
+
+                elif capture_name == 'import.module':
+                    # import X  or  import X as Y
+                    parent = node.parent  # import_statement node
+                    if parent and parent.id not in processed_import_nodes:
+                        processed_import_nodes.add(parent.id)
+                        module_name = node.text.decode('utf-8')
+                        sym_id = f"{rel_path}::import.{module_name}"
+                        symbols.append(Symbol(
+                            id=sym_id,
+                            type='import',
+                            name=module_name,
+                            qualified_name=module_name,
+                            file=rel_path,
+                            start_line=parent.start_point[0] + 1,
+                            end_line=parent.end_point[0] + 1,
+                            signature=f"import {module_name}",
+                            docstring='',
+                        ))
+
+                elif capture_name == 'import.from':
+                    # from X import Y  (one Symbol per from-import statement)
+                    parent = node.parent  # import_from_statement node
+                    if parent and parent.id not in processed_import_nodes:
+                        processed_import_nodes.add(parent.id)
+                        from_module = node.text.decode('utf-8')
+                        # Use the raw source line(s) for a readable signature
+                        stmt_lines = source_lines[
+                            parent.start_point[0]:parent.end_point[0] + 1
+                        ]
+                        signature = ' '.join(l.strip() for l in stmt_lines)[:80]
+                        sym_id = f"{rel_path}::import.{from_module}"
+                        symbols.append(Symbol(
+                            id=sym_id,
+                            type='import',
+                            name=from_module,
+                            qualified_name=from_module,
+                            file=rel_path,
+                            start_line=parent.start_point[0] + 1,
+                            end_line=parent.end_point[0] + 1,
+                            signature=signature,
+                            docstring='',
+                        ))
+
+                elif capture_name == 'constant.name':
+                    # Module-level assignment — only keep UPPER_CASE names
+                    name = node.text.decode('utf-8')
+                    if not (name.isupper() or (name[0].isupper() and '_' in name and name == name.upper())):
+                        continue
+                    # Locate the assignment node to get the value preview
+                    assign_node = node.parent
+                    while assign_node and assign_node.type not in ('assignment', 'augmented_assignment'):
+                        assign_node = assign_node.parent
+                    if not assign_node or assign_node.id in processed_constant_nodes:
+                        continue
+                    processed_constant_nodes.add(assign_node.id)
+                    line_text = source_lines[assign_node.start_point[0]] if assign_node.start_point[0] < len(source_lines) else ''
+                    value_preview = line_text.split('=', 1)[-1].strip()[:60] if '=' in line_text else ''
+                    sym_id = f"{rel_path}::constant.{name}"
+                    symbols.append(Symbol(
+                        id=sym_id,
+                        type='constant',
+                        name=name,
+                        qualified_name=name,
+                        file=rel_path,
+                        start_line=assign_node.start_point[0] + 1,
+                        end_line=assign_node.end_point[0] + 1,
+                        signature=f"{name} = {value_preview}",
+                        docstring='',
+                    ))
+
             except Exception as e:
                 self.logger.debug('symbol_extraction_error',
-                                file=filepath, capture=capture_name, error=str(e))
-    
+                                  file=filepath, capture=capture_name, error=str(e))
+
         return symbols
         
     def _extract_class(self, node, filepath: str, source_lines: list[str]) -> Symbol:
@@ -592,6 +687,10 @@ class ASTIndexer:
             qualified_name = name
             symbol_id = f"{filepath}::{name}"
         
+        # Extract all call names from the function body for the call graph
+        body_node = node.child_by_field_name('body')
+        call_names = self._extract_calls_from_body(body_node)
+
         return Symbol(
             id=symbol_id,
             type=sym_type,
@@ -602,7 +701,8 @@ class ASTIndexer:
             end_line=end_line,
             signature=signature,
             docstring=docstring,
-            parent_class=parent_class
+            parent_class=parent_class,
+            calls=call_names,
         )
     
     def _extract_docstring(self, node, source_lines: list[str]) -> str:

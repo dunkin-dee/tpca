@@ -206,6 +206,7 @@ class IndexCache:
             'bases': symbol.bases,
             'decorators': symbol.decorators,
             'pagerank': symbol.pagerank,
+            'calls': symbol.calls,
         }
     
     def _deserialize_symbol(self, data: dict) -> Symbol:
@@ -224,6 +225,7 @@ class IndexCache:
             bases=data.get('bases', []),
             decorators=data.get('decorators', []),
             pagerank=data.get('pagerank', 0.0),
+            calls=data.get('calls', []),
         )
     
     def get_stats(self) -> dict:

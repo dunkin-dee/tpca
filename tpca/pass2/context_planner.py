@@ -98,7 +98,7 @@ class ContextPlanner:
 
         valid_ids = set(graph.nodes())
         self._logger.info(
-            "planner_start",
+            "planner_request",
             task=task[:80],
             budget_tokens=budget_tokens,
             valid_symbol_count=len(valid_ids),
@@ -125,9 +125,10 @@ class ContextPlanner:
             invalid = [s for s in request.all_symbols if s not in valid_ids]
             if not invalid:
                 self._logger.info(
-                    "planner_success",
+                    "planner_request",
                     primary_count=len(request.primary_symbols),
                     supporting_count=len(request.supporting_symbols),
+                    rationale_preview=request.rationale[:80] if request.rationale else "",
                 )
                 return request
 

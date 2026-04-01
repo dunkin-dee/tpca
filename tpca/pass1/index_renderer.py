@@ -5,6 +5,7 @@ from collections import defaultdict
 from ..config import TPCAConfig
 from ..logging import StructuredLogger
 from ..models import SymbolGraph
+from ..models.symbol import Symbol
 
 
 class IndexRenderer:
@@ -73,7 +74,7 @@ class IndexRenderer:
         return result
     
     def _render_file_section(self, filepath: str,
-                            symbols: list[tuple[str, 'Symbol']],
+                            symbols: list[tuple[str, Symbol]],
                             graph: SymbolGraph) -> str:
         """
         Render symbols for a single file.
@@ -87,64 +88,59 @@ class IndexRenderer:
         """
         lines = [f"## {filepath}"]
         
-        # Sort symbols: classes first, then functions, by PageRank within each group
-        classes = [(nid, sym) for nid, sym in symbols if sym.type == 'class']
-        functions = [(nid, sym) for nid, sym in symbols
-                    if sym.type == 'function']
-        methods = [(nid, sym) for nid, sym in symbols if sym.type == 'method']
-        
-        # Sort by PageRank (descending)
-        classes.sort(key=lambda x: x[1].pagerank, reverse=True)
-        functions.sort(key=lambda x: x[1].pagerank, reverse=True)
-        
+        # Group symbols by type, sorted by PageRank descending
+        classes   = sorted([(nid, sym) for nid, sym in symbols if sym.type == 'class'],
+                           key=lambda x: x[1].pagerank, reverse=True)
+        functions = sorted([(nid, sym) for nid, sym in symbols if sym.type == 'function'],
+                           key=lambda x: x[1].pagerank, reverse=True)
+        methods   = [(nid, sym) for nid, sym in symbols if sym.type == 'method']
+        constants = [(nid, sym) for nid, sym in symbols if sym.type == 'constant']
+        imports   = [(nid, sym) for nid, sym in symbols if sym.type == 'import']
+
         # Render classes with their methods
         for class_id, class_sym in classes:
             tier = graph.nodes[class_id].get('tier', '')
             tier_label = f"[{tier}]" if tier else ""
-            
-            # Class signature
+
             bases_str = f"({', '.join(class_sym.bases)})" if class_sym.bases else ""
             lines.append(f"class {class_sym.name}{bases_str}".ljust(40) + f" {tier_label}")
-            
-            # Find methods of this class
-            class_methods = [
-                (nid, sym) for nid, sym in methods
-                if sym.parent_class == class_sym.name
-            ]
-            class_methods.sort(key=lambda x: x[1].pagerank, reverse=True)
-            
+
+            class_methods = sorted(
+                [(nid, sym) for nid, sym in methods if sym.parent_class == class_sym.name],
+                key=lambda x: x[1].pagerank, reverse=True,
+            )
             for method_id, method_sym in class_methods:
                 method_tier = graph.nodes[method_id].get('tier', '')
                 method_tier_label = f"[{method_tier}]" if method_tier else ""
-                
-                # Method visibility prefix
                 prefix = "  - " if method_sym.name.startswith('_') else "  + "
-                
-                # Method signature (simplified)
                 sig = self._simplify_signature(method_sym.signature)
-                
-                # Docstring preview
-                doc_preview = ""
+                lines.append(f"{prefix}{sig}".ljust(40) + f" {method_tier_label}")
                 if method_sym.docstring:
-                    doc_preview = f"  # {method_sym.docstring[:60]}"
-                
-                method_line = f"{prefix}{sig}".ljust(40) + f" {method_tier_label}"
-                lines.append(method_line)
-                if doc_preview:
-                    lines.append(doc_preview)
-        
+                    lines.append(f"  # {method_sym.docstring[:60]}")
+
         # Render standalone functions
         for func_id, func_sym in functions:
             tier = graph.nodes[func_id].get('tier', '')
             tier_label = f"[{tier}]" if tier else ""
-            
             sig = self._simplify_signature(func_sym.signature)
-            func_line = sig.ljust(40) + f" {tier_label}"
-            lines.append(func_line)
-            
+            lines.append(sig.ljust(40) + f" {tier_label}")
             if func_sym.docstring:
                 lines.append(f"  # {func_sym.docstring[:60]}")
-        
+
+        # Render module-level constants (PERIPHERAL symbols omitted unless CORE/SUPPORT)
+        for const_id, const_sym in constants:
+            tier = graph.nodes[const_id].get('tier', 'PERIPHERAL')
+            if tier == 'PERIPHERAL':
+                continue
+            tier_label = f"[{tier}]"
+            lines.append(f"  {const_sym.signature[:60]}".ljust(40) + f" {tier_label}")
+
+        # Render imports compactly (no tier label — informational only)
+        if imports:
+            lines.append("  imports:")
+            for _, imp_sym in imports:
+                lines.append(f"    {imp_sym.signature[:70]}")
+
         return '\n'.join(lines)
     
     def _simplify_signature(self, signature: str) -> str:

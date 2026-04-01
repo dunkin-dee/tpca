@@ -125,7 +125,7 @@ class TPCAOrchestrator:
 
         # ── Phase 3 — Resume: resolve manifest path and load prior state ───────
         resume_path = resume_manifest or getattr(self._config, "resume_manifest", None)
-        prior_manifest, prior_log, skip_symbols = self._load_resume_state(resume_path)
+        _, prior_log, skip_symbols = self._load_resume_state(resume_path)
 
         # ── Pass 1 ─────────────────────────────────────────────────────────────
         t_pass1 = time.time()
@@ -140,12 +140,12 @@ class TPCAOrchestrator:
         compact_index = self._renderer.render(graph)
         pass1_ms = int((time.time() - t_pass1) * 1000)
 
-        # Estimate raw tokens available (chars in all source files / 4)
+        # Estimate raw tokens available: sum of all source line ranges * avg tokens/line
         raw_token_estimate = sum(
-            len(graph.nodes[n].get("symbol").signature or "")
+            max((graph.nodes[n]["symbol"].end_line - graph.nodes[n]["symbol"].start_line + 1), 1) * 8
             for n in graph.nodes
             if graph.nodes[n].get("symbol")
-        ) * 10  # rough estimate
+        )
 
         self._logger.info(
             "pass1_complete",
@@ -206,6 +206,7 @@ class TPCAOrchestrator:
                 if graph.nodes[n].get("symbol")
             }),
             "symbols_indexed": len(symbols),
+            "raw_tokens_available": raw_token_estimate,
             "compression_ratio": round(compression_ratio, 1),
             "fallback_used": getattr(result, "fallback_used", False),  # Phase 3
             **result.stats,

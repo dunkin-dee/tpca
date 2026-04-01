@@ -18,11 +18,12 @@ class GraphRanker:
     to the task description.
     """
     
-    # Rank tier thresholds (percentiles)
+    # Rank tier thresholds (percentiles) — matches design doc §6.4
+    # CORE: top 10%; SUPPORT: top 10-40%; PERIPHERAL: bottom 60%
     TIER_THRESHOLDS = {
         'CORE': 0.90,       # Top 10%
-        'SUPPORT': 0.70,    # 70th-90th percentile
-        'PERIPHERAL': 0.0   # Below 70th percentile
+        'SUPPORT': 0.60,    # 60th-90th percentile (top 10-40%)
+        'PERIPHERAL': 0.0   # Below 60th percentile
     }
     
     def __init__(self, config: TPCAConfig, logger: StructuredLogger):

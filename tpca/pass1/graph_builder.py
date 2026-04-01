@@ -33,34 +33,39 @@ class GraphBuilder:
     def build(self, symbols: list[Symbol]) -> SymbolGraph:
         """
         Build a symbol graph from a list of symbols.
-        
+
         Args:
             symbols: List of Symbol objects from ASTIndexer
-        
+
         Returns:
             NetworkX DiGraph with symbols as nodes and relationships as edges
         """
+        import time
+        t0 = time.time()
+
         self._graph = nx.DiGraph()
         self._pending_edges = []
         self._symbols_by_file = defaultdict(list)
-        
+
         # Add all symbols as nodes
         for sym in symbols:
             self._graph.add_node(sym.id, symbol=sym)
             self._symbols_by_file[sym.file].append(sym)
-        
+
         self.logger.info('graph_nodes_added', count=len(symbols))
-        
+
         # Add structural edges (class membership, inheritance)
         self._add_structural_edges(symbols)
-        
-        # Resolve cross-file call edges
+
+        # Resolve call edges from AST-extracted call lists
         self._resolve_cross_file_edges(symbols)
-        
-        self.logger.info('graph_build_complete',
-                        nodes=self._graph.number_of_nodes(),
-                        edges=self._graph.number_of_edges())
-        
+
+        build_time_ms = int((time.time() - t0) * 1000)
+        self.logger.info('graph_built',
+                        node_count=self._graph.number_of_nodes(),
+                        edge_count=self._graph.number_of_edges(),
+                        build_time_ms=build_time_ms)
+
         return self._graph
     
     def _add_structural_edges(self, symbols: list[Symbol]):
@@ -112,47 +117,59 @@ class GraphBuilder:
     
     def _resolve_cross_file_edges(self, symbols: list[Symbol]):
         """
-        Resolve call relationships between symbols.
-        This is simplified for Phase 1 - a more complete implementation
-        would parse function bodies for actual calls.
-        
-        For now, we create edges based on heuristics:
-        - Methods in the same class call each other
-        - Public methods are called by other files
+        Build call edges from the AST-extracted call lists stored on each Symbol.
+
+        Resolution order:
+        1. Qualified name match (e.g. 'Auth.validate_token')
+        2. Simple name match — prefer same-file candidate, then first found
+        3. Unresolvable names become external_call edges (weight 0.1)
+
+        Edge weight = number of call sites (duplicate entries in Symbol.calls).
         """
-        # Build namespace for quick lookup
-        namespace = {}
+        # Build lookup tables: simple name → [symbol_id, ...] and
+        # qualified name → symbol_id
+        by_simple: dict[str, list[str]] = defaultdict(list)
+        by_qualified: dict[str, str] = {}
+
         for sym in symbols:
-            namespace[sym.name] = sym.id
-            namespace[sym.qualified_name] = sym.id
-        
-        # For Phase 1, add some basic call edges
-        # In Phase 2/3, this would be replaced with actual call graph analysis
-        methods_by_class = defaultdict(list)
+            by_simple[sym.name].append(sym.id)
+            by_qualified[sym.qualified_name] = sym.id
+
         for sym in symbols:
-            if sym.type == 'method' and sym.parent_class:
-                class_id = f"{sym.file}::{sym.parent_class}"
-                methods_by_class[class_id].append(sym)
-        
-        # Add intra-class method calls (heuristic: methods call each other)
-        for class_id, methods in methods_by_class.items():
-            if len(methods) > 1:
-                # Create weighted edges based on method names
-                for i, method1 in enumerate(methods):
-                    for method2 in methods[i+1:]:
-                        # Heuristic: private methods are called by public ones
-                        if method2.name.startswith('_') and not method1.name.startswith('_'):
-                            self._graph.add_edge(method1.id, method2.id,
-                                               type='calls', weight=1)
-                            self.logger.debug('edge_inferred', type='calls',
-                                            source=method1.id, target=method2.id)
-        
-        # Note: A complete implementation would:
-        # 1. Parse function bodies with tree-sitter
-        # 2. Find all call expressions
-        # 3. Resolve them against the namespace
-        # 4. Track call counts
-        # This is sufficient for Phase 1 demonstration
+            if not sym.calls:
+                continue
+
+            # Count how many times each callee name appears (= call weight)
+            call_counts: dict[str, int] = {}
+            for callee in sym.calls:
+                call_counts[callee] = call_counts.get(callee, 0) + 1
+
+            for callee_name, count in call_counts.items():
+                # 1. Qualified name match
+                target_id = by_qualified.get(callee_name)
+
+                # 2. Simple name match
+                if not target_id:
+                    candidates = by_simple.get(callee_name, [])
+                    if candidates:
+                        # Prefer same-file symbol to reduce false cross-file edges
+                        same_file = [c for c in candidates if c.startswith(sym.file + '::')]
+                        target_id = same_file[0] if same_file else candidates[0]
+
+                if target_id and target_id != sym.id and self._graph.has_node(target_id):
+                    # Accumulate weight if edge already exists
+                    if self._graph.has_edge(sym.id, target_id):
+                        self._graph[sym.id][target_id]['weight'] += count
+                    else:
+                        self._graph.add_edge(sym.id, target_id,
+                                             type='calls', weight=count)
+                    self.logger.debug('edge_resolved',
+                                      source=sym.id, target=target_id, weight=count)
+                elif not target_id:
+                    self._graph.add_edge(sym.id, callee_name,
+                                         type='external_call', weight=0.1)
+                    self.logger.debug('edge_external',
+                                      source=sym.id, target=callee_name)
     
     def _resolve_symbol_name(self, name: str, current_file: str,
                             symbols: list[Symbol]) -> Optional[str]:

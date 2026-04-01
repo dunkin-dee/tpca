@@ -59,7 +59,7 @@ class TPCAConfig:
     ollama_synthesis_model: str = "llama3.2"   # swap for a larger model if available
 
     # ── Output ────────────────────────────────────────────────────────────────
-    output_mode: str = "inline"          # inline | single_file | mirror | per_symbol
+    output_mode: str = "single_file"      # inline | single_file | mirror | per_symbol
     output_dir: str = "./tpca_output"
     max_synthesis_iterations: int = 20
 
