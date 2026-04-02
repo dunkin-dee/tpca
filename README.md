@@ -1,269 +1,372 @@
-# TPCA - Two-Pass Context Agent
+# TPCA — Two-Pass Context Agent
 
-AST-driven, graph-ranked context retrieval for limited-window LLMs. TPCA implements a complete three-phase pipeline: Pass 1 (zero-LLM indexing), Pass 2 (LLM-driven synthesis), and Phase 3 (multi-language, fallback, resume).
+AST-driven, graph-ranked context management for limited-window LLMs. TPCA solves the "too much code, too little context" problem and works in two modes:
 
-## What This Does
+- **Documentation mode** — generates documentation, summaries, or any text-based output for any codebase
+- **Coding assistant mode** — an interactive session that plans, executes, and tracks code changes across a project
 
-TPCA analyzes Python, JavaScript, and TypeScript codebases and generates documentation or other task-driven outputs using a bounded-context approach:
+Both modes work against local models (Ollama) by default, with cloud (Anthropic) available via a flag.
 
-**Pass 1 (Deterministic, Zero LLM)**: Creates a compact, ranked index of all code symbols without any LLM calls.
+---
 
-**Pass 2 (LLM-Driven Synthesis)**: Uses the compact index to guide an LLM in generating detailed outputs, with bounded context regardless of output size.
+## How It Works
 
-**Phase 3 (Advanced)**: Multi-language support, fallback pipeline for over-budget subgraphs, and manifest-based resume.
+### Pass 1 — Deterministic Indexing (zero LLM)
 
-**Features:**
-- Multi-file parsing for Python, JavaScript, TypeScript, and TSX via Tree-sitter AST
-- Cross-file symbol relationship graph with edge types: calls, inherits, member_of
-- Task-biased PageRank for symbol importance ranking
-- Compact text index generation (1,000-3,000 tokens for 10K lines of code)
-- Provider-agnostic LLM client (Anthropic Claude or Ollama)
-- tiktoken-accurate token counting and budget management
-- Structured logging with file, console, and ring buffer outputs
-- Per-file caching with automatic hash-based invalidation
-- Four output modes: inline, single_file, mirror, per_symbol
-- ChunkedFallback pipeline for subgraphs that exceed context budget
-- OutputManifest-based resume for interrupted runs
+Every run starts here. TPCA parses your source files with Tree-sitter, builds a symbol relationship graph, runs task-biased PageRank, and renders a compact text index (~1–3K tokens for a 10K-line codebase). No LLM is involved; the result is fully deterministic and cached per file.
+
+### Pass 2 — LLM Synthesis
+
+The compact index is handed to an LLM that selects which symbols to read in detail. Token-budgeted slices of actual source are fetched and fed into a bounded synthesis loop. Working memory stays O(chunks), not O(total output size), so the context window never blows up regardless of project size.
+
+### Coding Assistant
+
+On top of the two passes, TPCA has a full coding-session pipeline:
+
+1. A **PlannerAgent** breaks the task into scoped sections (one section ≈ one context window of work)
+2. An **EvaluatorAgent** scores and optionally splits over-budget sections
+3. **WorkerAgents** run a tool-call loop per section — reading files, writing diffs, running tests, and emitting a structured summary
+4. A **SessionManager** orchestrates the whole lifecycle, saves state after every section, and propagates interface-change notifications to downstream sections
+
+Sessions survive interruption: `.tpca_plan.json` in the project root captures the full plan state.
+
+---
 
 ## Installation
 
-**Requirements:** Python 3.10+, and either an Anthropic API key or a running Ollama instance.
+**Requirements:** Python 3.10+, and either a running [Ollama](https://ollama.com) instance or an Anthropic API key.
 
 ```bash
+git clone <repo>
+cd tpca
+python -m venv venv
+source venv/Scripts/activate   # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-**Minimal install (Python-only, no LLM synthesis):**
+**JS/TS support** (optional — Python is always available):
 ```bash
-pip install tree-sitter-python networkx
+pip install tree-sitter-javascript tree-sitter-typescript
 ```
 
-**Without JS/TS support:**
+---
+
+## LLM Setup
+
+### Ollama (default, local)
+
 ```bash
-pip install tree-sitter-python networkx anthropic tiktoken openai click prompt_toolkit
-# JS/TS files are silently skipped if tree-sitter-javascript/typescript are absent
+ollama pull qwen2.5-coder:14b   # recommended for coding tasks
+# TPCA defaults to Ollama on http://localhost:11434/v1
 ```
 
-### LLM Setup
+### Anthropic Claude
 
-**Anthropic Claude:**
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-**Ollama (local):**
-```bash
-# Install Ollama, then pull a model
-ollama pull qwen2.5-coder:14B
-# TPCA auto-detects Ollama if ANTHROPIC_API_KEY is not set
-```
+Use the `--preset cloud` flag or set `provider="anthropic"` in config to switch.
+
+---
 
 ## Quick Start
 
-**Pass 1 demo (no API key needed):**
+### Interactive REPL
+
 ```bash
-python demo_phase1.py
+tpca repl                       # Ollama default
+tpca repl --preset cloud        # Anthropic Claude
+tpca repl --preset 13b-local    # explicit 13B local config
 ```
 
-**Full two-pass pipeline:**
-```bash
-ANTHROPIC_API_KEY=sk-ant-... python demo_phase2.py
+The REPL is the primary interface. Commands:
+
+```
+File browsing:
+  ls [path]          List directory contents
+  tree [path]        Directory tree (depth 3)
+  cat <file>         Print file contents (max 500 lines)
+  pwd / cd <path>    Navigate (sandboxed to startup directory)
+
+Documentation:
+  run <task>         Run full pipeline on current directory
+  index [path]       Run Pass 1 only and show compact index
+  stats              Show stats from the last operation
+
+Coding sessions:
+  plan new <task>    Start a new coding session (plans, does not execute)
+  plan               Show tree view of current plan
+  plan clear         Delete the current plan
+  continue           Resume execution from last saved state
+  retry <id>         Re-run a blocked or needs-revision section
+  eval <id>          Re-evaluate a specific section
+  summary            Compact table of all section summaries
+  diff <id>          Show git diff for files changed by a section
+  tools              List all available worker tools
+
+Other:
+  watch              File watcher status
+  config             Show current configuration
+  set <key> <value>  Change a config value live
+  !<command>         Shell passthrough (e.g. !git status)
 ```
 
-**Multi-language, mirror mode, resume:**
+### Documentation — CLI
+
 ```bash
-ANTHROPIC_API_KEY=sk-ant-... python demo_phase3.py
+# Document all public methods in the current directory
+tpca run "Document every public method with parameters and return types."
+
+# Index only (no LLM, useful for inspection)
+tpca index ./src
+
+# Mirror mode: outputs to docs/ mirroring the source tree
+tpca run "Summarise each module" --output-mode mirror --output-dir ./docs
+
+# Resume an interrupted run
+tpca run "..." --resume .tpca_cache/manifest.json
 ```
 
-**Use as a library:**
+### Coding Assistant — Library
+
+```python
+from tpca import TPCAOrchestrator, TPCAConfig
+
+config = TPCAConfig.from_preset("13b-local")   # or "cloud", "7b-local"
+orchestrator = TPCAOrchestrator(config=config)
+
+result = orchestrator.run_coding_session(
+    source="./my_project/src",
+    task="Add input validation to every public API endpoint.",
+)
+
+print(result["stats"])
+# {'sections_total': 4, 'sections_complete': 4, 'total_time_ms': 41200, ...}
+
+# Resume after an interruption
+result = orchestrator.run_coding_session(
+    source="./my_project/src",
+    task="Add input validation to every public API endpoint.",
+    resume=True,
+)
+```
+
+### Documentation — Library
+
 ```python
 from tpca import TPCAOrchestrator, TPCAConfig
 
 config = TPCAConfig(
     provider="anthropic",
-    reader_model="claude-haiku-4-5-20251001",
     synthesis_model="claude-sonnet-4-6",
     output_mode="mirror",
     output_dir="./docs",
 )
-
 orchestrator = TPCAOrchestrator(config=config)
 result = orchestrator.run(
     source="./my_project/src",
     task="Document every public method with parameters and return types.",
 )
-
-print(result['stats'])
-# {'pass1_time_ms': 187, 'llm_calls': 4, 'compression_ratio': 12.5, ...}
-
-print(result['output'])  # dict of {file: content} in inline mode
+print(result["stats"])  # compression_ratio, llm_calls, total_time_ms, ...
 ```
+
+---
+
+## Configuration
+
+All configuration lives in `TPCAConfig`. The easiest entry point is a named preset:
+
+```python
+from tpca import TPCAConfig
+
+config = TPCAConfig.from_preset("13b-local")   # Ollama, qwen2.5-coder:14b, 16K context
+config = TPCAConfig.from_preset("7b-local")    # Ollama, qwen2.5-coder:7b, 4K context
+config = TPCAConfig.from_preset("cloud")       # Anthropic, claude-sonnet-4-6, 32K context
+```
+
+Full reference:
+
+```python
+TPCAConfig(
+    # Languages
+    languages=["python"],                       # "python" | "javascript" | "typescript"
+
+    # LLM provider
+    provider="ollama",                          # "ollama" | "anthropic"
+    reader_model="claude-haiku-4-5-20251001",  # lightweight: planning and extraction
+    synthesis_model="claude-sonnet-4-6",       # powerful: synthesis output
+    ollama_base_url="http://localhost:11434/v1",
+    ollama_reader_model="qwen2.5-coder:14b",
+    ollama_synthesis_model="qwen2.5-coder:14b",
+
+    # Token budget
+    model_context_window=16384,
+    context_budget_pct=0.75,
+    max_tool_rounds=20,                        # max LLM tool-call rounds per worker
+
+    # Indexing
+    top_n_symbols=50,
+    pagerank_alpha=0.85,
+    cache_enabled=True,
+    cache_dir=".tpca_cache",
+    exclude_patterns=["__pycache__", ".git", "node_modules", "venv"],
+
+    # Output (documentation mode)
+    output_mode="inline",                      # inline | single_file | mirror | per_symbol
+    output_dir="./tpca_output",
+    max_synthesis_iterations=20,
+
+    # Coding sessions
+    fallback_chunk_tokens=3500,               # target tokens per plan section
+    fallback_overlap_tokens=150,
+    parallel_workers=False,                   # True: file-independent sections run concurrently
+
+    # Resume (documentation mode)
+    resume_manifest=None,                     # path to prior manifest.json
+
+    # Logging
+    log=LogConfig(
+        log_file=".tpca_cache/tpca.log",
+        console_level="WARN",                 # DEBUG | INFO | WARN | ERROR
+    ),
+)
+```
+
+---
+
+## Coding Session Details
+
+### Plan lifecycle
+
+A session moves through these states:
+
+```
+PLANNING → EVALUATING → EXECUTING → COMPLETE
+```
+
+Each section in the plan follows:
+
+```
+PENDING → IN_PROGRESS → COMPLETE
+                      ↘ NEEDS_REVISION  (evaluator flagged it, or an interface changed)
+                      ↘ BLOCKED         (worker raised an exception)
+```
+
+### Worker tools
+
+Each worker agent has access to 10 tools:
+
+| Tool | Description |
+|------|-------------|
+| `read_file` | Read file content, optionally line-ranged |
+| `write_file` | Write or overwrite a file |
+| `apply_diff` | Apply a unified diff (preferred over write_file) |
+| `patch_file` | Exact old→new text replacement (fallback for models that can't produce diffs) |
+| `list_dir` | List files in a directory |
+| `grep_symbol` | Find a symbol definition in the AST index |
+| `query_graph` | Get callers/callees of a symbol |
+| `run_shell` | Run an allowlisted shell command |
+| `run_tests` | Run tests scoped to specified files |
+| `write_summary` | Emit a structured work summary (required before finishing) |
+
+`run_shell` and `run_tests` are restricted to the project root and a command allowlist (`pytest`, `python -m pytest`, `git status`, `git diff`, `npm test`, `cargo test`). No destructive shell commands are permitted.
+
+After every file-mutating tool call (`write_file`, `apply_diff`, `patch_file`), TPCA automatically runs the test suite on the changed files and appends the result to the tool output, giving the model an immediate self-correction signal.
+
+### Plan persistence
+
+The active plan is saved to `.tpca_plan.json` in the project root after every section completes. Add it to `.gitignore` if you don't want to commit session state.
+
+---
 
 ## Project Structure
 
 ```
 tpca/
-├── __init__.py                 # Package exports
-├── config.py                   # TPCAConfig (unified for all phases)
-├── orchestrator.py             # TPCAOrchestrator (top-level entry point)
-├── logging/
-│   ├── structured_logger.py    # File (JSON-lines) + console + ring buffer
-│   ├── console_handler.py      # Human-readable console formatter
-│   └── log_config.py           # LogConfig dataclass
-├── models/
-│   ├── symbol.py               # Symbol, SymbolGraph, PendingEdge
-│   ├── slice.py                # Slice, SliceRequest
-│   ├── output.py               # OutputLog, OutputChunk, OutputManifest
-│   └── chunk_plan.py           # ChunkPlan
-├── pass1/                      # Pass 1: zero-LLM indexing
-│   ├── ast_indexer.py          # Multi-language Tree-sitter parser
-│   ├── graph_builder.py        # Symbol relationship graph
-│   ├── graph_ranker.py         # Task-biased PageRank ranking
-│   ├── index_renderer.py       # Compact text index generation
-│   └── queries/
-│       ├── python.scm          # Tree-sitter query for Python
-│       ├── javascript.scm      # Tree-sitter query for JavaScript
-│       └── typescript.scm      # Tree-sitter query for TypeScript + TSX
-├── pass2/                      # Pass 2: LLM-driven synthesis
-│   ├── context_planner.py      # LLM symbol selection with validation/retry
-│   ├── slice_fetcher.py        # Token-budgeted source slice retrieval
-│   ├── output_chunker.py       # Synthesis loop, topological ordering, OutputLog
-│   ├── output_writer.py        # Multi-mode output + manifest persistence
-│   └── synthesis_agent.py      # Synthesis loop orchestration
+├── config.py                   # TPCAConfig — all settings in one dataclass
+├── orchestrator.py             # TPCAOrchestrator — top-level entry point
+├── session_manager.py          # SessionManager — coding session lifecycle
+│
+├── pass1/                      # Deterministic indexing
+│   ├── ast_indexer.py          # Tree-sitter multi-language parser
+│   ├── graph_builder.py        # Symbol relationship graph (NetworkX)
+│   ├── graph_ranker.py         # Task-biased PageRank
+│   ├── index_renderer.py       # Compact text index renderer
+│   └── queries/                # Tree-sitter S-expression queries
+│       ├── python.scm
+│       ├── javascript.scm
+│       └── typescript.scm
+│
+├── pass2/                      # LLM synthesis
+│   ├── context_planner.py      # LLM selects symbols to read
+│   ├── slice_fetcher.py        # Token-budgeted source retrieval
+│   ├── output_chunker.py       # Synthesis loop with bounded OutputLog
+│   ├── synthesis_agent.py      # Orchestrates full synthesis
+│   └── output_writer.py        # Writes output + manifest
+│
+├── plan/                       # Coding session planning
+│   ├── plan_model.py           # PlanSection, SessionPlan, WorkerSummary
+│   ├── plan_store.py           # Atomic JSON persistence (.tpca_plan.json)
+│   ├── planner_agent.py        # LLM-driven plan generation
+│   ├── sub_planner_agent.py    # Splits over-budget sections (max depth 3)
+│   └── evaluator_agent.py      # Scores sections and worker output
+│
+├── workers/                    # Coding session execution
+│   ├── worker_agent.py         # WorkerAgent — tool-call loop per section
+│   ├── worker_context.py       # WorkerContextBuilder — bounded context assembly
+│   └── templates.py            # Per-task-type system prompt templates
+│
+├── tools/                      # Worker tool system
+│   ├── registry.py             # Tool definitions and JSON schemas
+│   ├── executor.py             # ToolExecutor — executes and sandboxes tools
+│   └── specs.py                # Compact tool description text
+│
 ├── llm/
-│   └── client.py               # Provider-agnostic LLM client + TokenCounter
+│   └── client.py               # LLMClient — Anthropic + Ollama, native tool calls
+│
+├── fallback/                   # Over-budget subgraph fallback
+│   ├── chunked_pipeline.py     # Partition subgraph into overlapping chunks
+│   ├── reader_agent.py         # Lightweight reader model per chunk
+│   └── memory_store.py         # Aggregate extractions → compact context
+│
 ├── cache/
 │   └── index_cache.py          # Per-file symbol cache with hash invalidation
-└── fallback/                   # Phase 3: over-budget fallback
-    ├── chunked_pipeline.py     # Partition subgraph into chunks
-    ├── reader_agent.py         # Lightweight reader model per chunk
-    └── memory_store.py         # Aggregate extractions into compact context
+│
+├── watch/
+│   └── file_watcher.py         # watchdog-based background file watcher
+│
+└── cli/
+    └── main.py                 # Click CLI + prompt_toolkit REPL
 
-tests/
-├── test_phase1.py
-├── test_context_planner.py
-├── test_slice_fetcher.py
-├── test_output_chunker.py
-├── test_synthesis_agent.py
-├── test_llm_client.py
-├── test_fallback.py            # Phase 3: ChunkedFallback + ReaderAgent
-├── test_multi_language.py      # Phase 3: JS/TS indexing
-├── test_resume.py              # Phase 3: manifest-based resume
-└── fixtures/
-    ├── sample_codebase/        # Python: auth.py, router.py, utils.py
-    └── sample_js_codebase/     # JavaScript: auth.js, router.js, utils.js
-
-demo_phase1.py                  # Pass 1 demo (no LLM)
-demo_phase2.py                  # Full two-pass pipeline demo
-demo_phase3.py                  # Multi-language, mirror mode, resume demo
+tests/                          # 300+ tests — all LLM calls mocked
 ```
 
-## Configuration
+---
 
-```python
-config = TPCAConfig(
-    # Languages (Phase 3: JS/TS support)
-    languages=['python', 'javascript', 'typescript'],
+## Architecture Notes
 
-    # Paths to skip during directory walk
-    exclude_patterns=['__pycache__', '.git', 'node_modules', 'dist', '.venv'],
+### Bounded context
 
-    # Cache
-    cache_dir='.tpca_cache',
-    cache_enabled=True,
+`OutputLog` keeps working memory O(chunks), not O(total output size). Each synthesis call sees only the compact index + current source slices + prior log entries — never all prior output.
 
-    # Graph ranking
-    pagerank_alpha=0.85,
-    top_n_symbols=50,
+### Token accuracy
 
-    # LLM
-    provider='anthropic',                         # 'anthropic' or 'ollama'
-    reader_model='claude-haiku-4-5-20251001',     # lightweight: planning, extraction
-    synthesis_model='claude-sonnet-4-6',          # powerful: synthesis output
+All budget enforcement uses `tiktoken` (cl100k_base) with a 4-char/token fallback. Character counts are never used for budget decisions.
 
-    # Ollama-specific
-    ollama_base_url='http://localhost:11434/v1',
-    ollama_reader_model='qwen2.5-coder:14B',
-    ollama_synthesis_model='qwen2.5-coder:14B',
+### Two model roles
 
-    # Token budget
-    model_context_window=8192,
-    context_budget_pct=0.70,
-    max_planner_retries=3,
+- **Reader model** (default: `qwen2.5-coder:14b` / `claude-haiku-4-5-20251001`): lightweight, used for context planning, section evaluation, and fallback chunk reading
+- **Synthesis model** (default: same / `claude-sonnet-4-6`): used for actual synthesis output and worker tool loops
 
-    # Output
-    output_mode='mirror',          # 'inline' | 'single_file' | 'mirror' | 'per_symbol'
-    output_dir='./docs',
-    max_synthesis_iterations=20,
+### Graceful degradation
 
-    # Phase 3: fallback
-    fallback_enabled=True,
-    fallback_chunk_tokens=1800,
-    fallback_overlap_tokens=150,
+- No LLM available → Pass 1 runs fully; Pass 2 skipped with a warning
+- JS/TS parsers absent → those files silently skipped; Python unaffected
+- LLM returns bad symbol IDs → retried with suggestions, falls back to top CORE by PageRank
+- Worker doesn't call `write_summary` → PARTIAL summary synthesised from tool call history
 
-    # Phase 3: resume
-    resume_manifest='.tpca_cache/manifest.json',  # omit to start fresh
-
-    # Logging
-    log=LogConfig(
-        log_file='.tpca_cache/tpca.log',
-        console_level='INFO',    # DEBUG | INFO | WARN | ERROR
-        file_level='DEBUG',
-        ring_buffer_size=1000,
-    ),
-)
-```
-
-## Architecture
-
-### Data Flow
-
-```
-Source Files (Python / JavaScript / TypeScript)
-    |
-    v  PASS 1 — DETERMINISTIC (ZERO LLM)
-ASTIndexer -> GraphBuilder -> GraphRanker -> IndexRenderer
-(Symbol[])    (DiGraph)       (ranked)       (compact text ~1-3K tokens)
-    |
-    v  PASS 2 — LLM-DRIVEN SYNTHESIS
-ContextPlanner -> SliceFetcher -> SynthesisAgent -> OutputWriter
-(LLM->SliceReq)  (Slice[])       (OutputLog loop)   (files + manifest)
-                                      |
-                             ChunkedFallback (if over budget)
-                             ReaderAgent per chunk -> AgentMemoryStore
-```
-
-### Pass 1 Components
-
-1. **ASTIndexer**: Parses Python/JS/TS with Tree-sitter; extracts symbols with signatures, docstrings, and line ranges; integrates with IndexCache.
-2. **GraphBuilder**: Builds a NetworkX DiGraph with call, inheritance, and membership edges; resolves cross-file references.
-3. **GraphRanker**: Task-biased PageRank; assigns `CORE`, `SUPPORT`, `PERIPHERAL` tier labels.
-4. **IndexRenderer**: Renders the ranked subgraph as a compact, hierarchical text index.
-5. **IndexCache**: Per-file symbol cache with SHA-based invalidation; avoids re-parsing unchanged files.
-
-### Pass 2 Components
-
-6. **LLMClient**: Provider-agnostic wrapper (Anthropic or Ollama); `TokenCounter` uses tiktoken (cl100k_base).
-7. **ContextPlanner**: Sends compact index to the reader model; validates returned symbol IDs; retries with suggestions on invalid IDs; falls back to top CORE symbols.
-8. **SliceFetcher**: Retrieves exact source lines per symbol; enforces tiktoken-accurate token budget; primary symbols always included.
-9. **OutputChunker**: Topological processing order; maintains bounded `OutputLog` (~50-100 tokens/entry).
-10. **SynthesisAgent**: Orchestrates the full synthesis loop; delegates to ChunkedFallback when a subgraph exceeds budget.
-11. **OutputWriter**: Writes output in the configured mode; persists `OutputManifest` for resume capability.
-12. **TPCAOrchestrator**: Top-level entry point; wires all components; handles resume from prior manifest.
-
-### Phase 3 Components
-
-13. **ChunkedFallback**: Partitions the relevant subgraph (not the full codebase) into overlapping token windows; dispatches each to a `ReaderAgent`.
-14. **ReaderAgent**: Ephemeral, one per chunk; calls the reader model for structured extraction; gracefully returns signature-only on LLM error.
-15. **AgentMemoryStore**: Extends `OutputLog`; aggregates extractions; `render_compact()` produces ~500 tokens that replace raw slices in the synthesis step.
-
-### Key Design Properties
-
-- **Bounded context**: `OutputLog` is O(chunks), not O(total output size).
-- **Token accuracy**: All budget enforcement uses tiktoken; character-count approximation is a fallback only.
-- **Resumability**: `OutputManifest` tracks completed symbols; `OutputLog.from_manifest()` reconstructs state; already-complete symbols are skipped at `get_next_chunk()`.
-- **Graceful degradation**: No LLM available — Pass 1 runs fully, Pass 2 skipped with a warning. JS/TS parsers absent — those files skipped, Python unaffected. LLM returns bad symbol IDs — retried with suggestions, then falls back to top CORE by PageRank.
-- **Identical interface with/without fallback**: `AgentMemoryStore` extends `OutputLog`, so `SynthesisAgent` needs no conditional logic.
+---
 
 ## Testing
 
@@ -271,38 +374,30 @@ ContextPlanner -> SliceFetcher -> SynthesisAgent -> OutputWriter
 # All unit tests (no API key needed — all LLM calls mocked)
 pytest tests/ -v
 
-# Phase-specific
-pytest tests/test_phase1.py -v
-pytest tests/test_fallback.py tests/test_multi_language.py tests/test_resume.py -v
+# Run specific test modules
+pytest tests/test_phase1.py tests/test_repl.py -v
 
 # Skip JS/TS tests if parsers not installed
 pytest tests/ -v -k "not JavaScript and not TypeScript"
 
-# Integration tests (requires ANTHROPIC_API_KEY or Ollama)
+# Integration tests (requires API key or Ollama)
 TPCA_RUN_INTEGRATION=1 pytest tests/ -v -m integration
 ```
 
+---
+
 ## Performance
 
-**Pass 1:**
-- Indexing: ~50-200 files/second (Python or JS/TS — Tree-sitter is language-agnostic at the C level)
+**Pass 1 (indexing):**
+- ~50–200 files/second (Tree-sitter is fast at the C level)
 - Graph build + PageRank: ~100ms for 1,000 symbols
-- Total: under 5 seconds for a 50K-line codebase
+- Under 5 seconds for a 50K-line codebase
 
-**Pass 2:**
-- Context planning: 1-3 reader-model calls
-- Synthesis loop: 1 synthesis-model call per top-level symbol
-- Total LLM calls: approximately 2 + N (where N = symbols in scope)
-- Typical compression ratio: 10-20x (raw source to compact index)
+**Pass 2 (documentation synthesis):**
+- ~2 + N LLM calls (where N = symbols in scope)
+- Typical compression ratio: 10–20× (raw source tokens to index tokens)
 
-**ChunkedFallback (Phase 3):**
-- Adds one reader-model call per chunk (~0.5-1s each at `fallback_chunk_tokens=1800`)
-- AgentMemoryStore overhead: ~75 tokens per extraction entry in the prompt
-
-## Design Document
-
-See `TPCA_Design_v2.docx` for the complete technical specification.
-
-## Status
-
-Pass 1: complete | Pass 2: complete | Phase 3: complete
+**Coding sessions:**
+- One planning call + one evaluation call per section
+- One tool-loop call per section (multiple rounds within the loop)
+- Parallel dispatch available for file-independent sections (`parallel_workers=True`)

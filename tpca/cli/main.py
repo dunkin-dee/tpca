@@ -23,6 +23,10 @@ from prompt_toolkit.history import FileHistory
 
 from tpca import TPCAOrchestrator, TPCAConfig
 from tpca.logging.log_config import LogConfig
+from tpca.plan.plan_model import PlanSection, SessionPlan
+from tpca.plan.plan_store import PlanStore
+from tpca.session_manager import SessionManager
+from tpca.tools.executor import ToolExecutor
 
 TPCA_VERSION = "3.0.0"
 
@@ -31,6 +35,8 @@ _NOISE_DIRS = {".git", "__pycache__", "node_modules", ".tpca_cache", "dist", ".v
 _COMMANDS = [
     "ls", "tree", "cat", "pwd", "cd",
     "run", "index", "stats",
+    "plan", "continue", "eval", "retry",
+    "tools", "summary", "diff",
     "config", "set",
     "watch",
     "shell", "help", "version", "exit", "quit",
@@ -53,6 +59,17 @@ TPCA operations:
   index [path]       Run Pass 1 only and show compact index
   stats              Show stats from the last operation
   watch              Show file watcher status
+
+Plan management (coding sessions):
+  plan               Show tree view of current plan
+  plan new <task>    Start a new coding session
+  plan clear         Delete the current plan (asks for confirmation)
+  continue           Resume execution from last saved state
+  eval <section_id>  Re-evaluate a specific section
+  retry <section_id> Re-run a BLOCKED or NEEDS_REVISION section
+  tools              List all available worker tools
+  summary            Compact table of all worker section summaries
+  diff <section_id>  Show git diff for files changed by a section
 
 Configuration:
   config             Show current configuration
@@ -375,6 +392,9 @@ class TPCARepl:
         # Extra run-time opts not stored in TPCAConfig
         self._budget: Optional[int] = None
         self._resume: Optional[str] = None
+        # Phase F — plan/session state
+        self._compact_index: Optional[str] = None
+        self._graph = None
 
     # ── main loop ──────────────────────────────────────────────────────────
 
@@ -418,22 +438,29 @@ class TPCARepl:
 
         cmd, *rest = tokens
         handlers = {
-            "ls":      self._repl_ls,
-            "tree":    self._repl_tree,
-            "cat":     self._repl_cat,
-            "pwd":     self._repl_pwd,
-            "cd":      self._repl_cd,
-            "run":     self._repl_run,
-            "index":   self._repl_index,
-            "stats":   self._repl_stats,
-            "watch":   self._repl_watch,
-            "config":  self._repl_config,
-            "set":     self._repl_set,
-            "shell":   self._repl_shell_cmd,
-            "help":    self._repl_help,
-            "version": self._repl_version,
-            "exit":    self._repl_exit,
-            "quit":    self._repl_exit,
+            "ls":       self._repl_ls,
+            "tree":     self._repl_tree,
+            "cat":      self._repl_cat,
+            "pwd":      self._repl_pwd,
+            "cd":       self._repl_cd,
+            "run":      self._repl_run,
+            "index":    self._repl_index,
+            "stats":    self._repl_stats,
+            "watch":    self._repl_watch,
+            "plan":     self._repl_plan,
+            "continue": self._repl_continue,
+            "eval":     self._repl_eval,
+            "retry":    self._repl_retry,
+            "tools":    self._repl_tools,
+            "summary":  self._repl_summary,
+            "diff":     self._repl_diff,
+            "config":   self._repl_config,
+            "set":      self._repl_set,
+            "shell":    self._repl_shell_cmd,
+            "help":     self._repl_help,
+            "version":  self._repl_version,
+            "exit":     self._repl_exit,
+            "quit":     self._repl_exit,
         }
         handler = handlers.get(cmd)
         if handler is None:
@@ -560,6 +587,8 @@ class TPCARepl:
         orch.start_watching(str(target))
         result = orch.run_pass1_only(source=str(target), task_keywords=None)
         self._last_stats = result.get("stats")
+        self._compact_index = result.get("index")
+        self._graph = result.get("graph")
         click.echo(result["index"])
         click.echo()
         click.echo("─" * 40)
@@ -725,6 +754,273 @@ class TPCARepl:
             pass
         return results
 
+    # ── Phase F — plan/session helpers ────────────────────────────────────────
+
+    def _get_plan_store(self) -> PlanStore:
+        return PlanStore(project_root=str(self.current_dir))
+
+    def _get_session_manager(self) -> SessionManager:
+        orch = self._get_orchestrator()
+        return SessionManager(
+            plan_store=self._get_plan_store(),
+            llm=orch.llm,
+            config=self.config,
+            graph=self._graph,
+            compact_index=self._compact_index or "",
+            project_root=str(self.current_dir),
+        )
+
+    def _ensure_index(self) -> None:
+        """Run Pass 1 if not already done this session."""
+        if self._compact_index is None:
+            click.echo("Running Pass 1 index…")
+            orch = self._get_orchestrator()
+            result = orch.run_pass1_only(source=str(self.current_dir))
+            self._compact_index = result["index"]
+            self._graph = result["graph"]
+            self._last_stats = result.get("stats")
+            click.echo(
+                f"Index ready ({result['stats']['symbols_indexed']} symbols)."
+            )
+
+    # ── Phase F — plan commands ────────────────────────────────────────────────
+
+    def _repl_plan(self, args: list[str]) -> None:
+        """plan / plan new <task> / plan clear."""
+        store = self._get_plan_store()
+
+        if not args:
+            plan = store.load()
+            if plan is None:
+                click.echo(
+                    "No plan found. Use 'plan new <task>' to start a session."
+                )
+                return
+            click.echo(_render_plan_tree(plan))
+            return
+
+        sub = args[0]
+
+        if sub == "new":
+            task_parts = args[1:]
+            if not task_parts:
+                click.echo("Usage: plan new <task description>")
+                return
+            task = " ".join(task_parts)
+
+            if store.exists():
+                click.echo(
+                    "Warning: a plan already exists for this directory."
+                )
+                try:
+                    answer = input("Overwrite? [y/N] ").strip().lower()
+                except (EOFError, KeyboardInterrupt):
+                    click.echo("\nAborted.")
+                    return
+                if answer != "y":
+                    click.echo("Aborted.")
+                    return
+
+            self._ensure_index()
+            sm = self._get_session_manager()
+            click.echo(f"Planning session: {task}")
+            try:
+                plan = sm.start_session(task)
+            except Exception as exc:
+                click.echo(f"Planning failed: {exc}")
+                return
+            click.echo(_render_plan_tree(plan))
+
+        elif sub == "clear":
+            if not store.exists():
+                click.echo("No plan to clear.")
+                return
+            try:
+                answer = input("Delete current plan? [y/N] ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                click.echo("\nAborted.")
+                return
+            if answer != "y":
+                click.echo("Aborted.")
+                return
+            store.clear()
+            click.echo("Plan deleted.")
+
+        else:
+            click.echo(
+                f"Unknown plan subcommand: '{sub}'. "
+                "Try: plan, plan new <task>, plan clear"
+            )
+
+    def _repl_continue(self, args: list[str]) -> None:
+        """Resume from last saved state and dispatch pending workers."""
+        store = self._get_plan_store()
+        plan = store.load()
+
+        if plan is None:
+            click.echo(
+                "No saved plan found. Use 'plan new <task>' to start a session."
+            )
+            return
+
+        if plan.status == "COMPLETE":
+            click.echo("Plan is already complete. Use 'plan' to view results.")
+            return
+
+        self._ensure_index()
+        sm = self._get_session_manager()
+        executor = ToolExecutor(
+            project_root=str(self.current_dir),
+            graph=self._graph,
+            index_text=self._compact_index or "",
+        )
+
+        click.echo(f"Resuming: {plan.task!r}")
+        try:
+            summaries = sm.dispatch_workers(plan, executor)
+        except KeyboardInterrupt:
+            click.echo("\nInterrupted.")
+            return
+        click.echo(f"\nDone. {len(summaries)} section(s) completed.")
+        click.echo(_render_plan_tree(plan))
+
+    def _repl_eval(self, args: list[str]) -> None:
+        """Re-evaluate a specific section: eval <section_id>."""
+        if not args:
+            click.echo("Usage: eval <section_id>")
+            return
+        section_id = args[0]
+
+        store = self._get_plan_store()
+        plan = store.load()
+        if plan is None:
+            click.echo("No plan found.")
+            return
+
+        section = _find_section_by_id(plan.sections, section_id)
+        if section is None:
+            click.echo(f"Section '{section_id}' not found.")
+            return
+
+        sm = self._get_session_manager()
+        budget = self.config.fallback_chunk_tokens
+        try:
+            evaluation = sm._evaluator.evaluate_plan_section(section, budget)
+        except Exception as exc:
+            click.echo(f"Evaluation failed: {exc}")
+            return
+
+        section.evaluation = evaluation
+        store.save(plan)
+
+        click.echo(f"Section {section_id}: {evaluation.recommendation}")
+        click.echo(f"  Score        : {evaluation.score:.2f}")
+        click.echo(f"  Completeness : {evaluation.completeness:.2f}")
+        click.echo(f"  Granularity  : {evaluation.granularity:.2f}")
+        click.echo(f"  Consistency  : {evaluation.consistency:.2f}")
+        click.echo(f"  Critique     : {evaluation.critique}")
+
+    def _repl_retry(self, args: list[str]) -> None:
+        """Mark a BLOCKED/NEEDS_REVISION section PENDING and re-dispatch: retry <section_id>."""
+        if not args:
+            click.echo("Usage: retry <section_id>")
+            return
+        section_id = args[0]
+
+        store = self._get_plan_store()
+        plan = store.load()
+        if plan is None:
+            click.echo("No plan found.")
+            return
+
+        section = _find_section_by_id(plan.sections, section_id)
+        if section is None:
+            click.echo(f"Section '{section_id}' not found.")
+            return
+
+        if section.status not in ("BLOCKED", "NEEDS_REVISION", "FAILED"):
+            click.echo(
+                f"Section '{section_id}' has status '{section.status}'. "
+                "Only BLOCKED / NEEDS_REVISION sections can be retried."
+            )
+            return
+
+        section.status = "PENDING"
+        store.save(plan)
+        click.echo(f"Section '{section_id}' reset to PENDING.")
+
+        self._ensure_index()
+        sm = self._get_session_manager()
+        executor = ToolExecutor(
+            project_root=str(self.current_dir),
+            graph=self._graph,
+            index_text=self._compact_index or "",
+        )
+        try:
+            summaries = sm.dispatch_workers(plan, executor)
+        except KeyboardInterrupt:
+            click.echo("\nInterrupted.")
+            return
+        click.echo(f"\nDone. {len(summaries)} section(s) run.")
+        click.echo(_render_plan_tree(plan))
+
+    def _repl_tools(self, args: list[str]) -> None:
+        """List all available worker tools with descriptions."""
+        executor = ToolExecutor(
+            project_root=str(self.current_dir),
+            graph=self._graph,
+            index_text=self._compact_index or "",
+        )
+        click.echo(executor.get_descriptions())
+
+    def _repl_summary(self, args: list[str]) -> None:
+        """Show a compact table of all WorkerSummary entries."""
+        store = self._get_plan_store()
+        plan = store.load()
+        if plan is None:
+            click.echo(
+                "No plan found. Use 'plan new <task>' to start a session."
+            )
+            return
+        click.echo(_render_summary_table(plan))
+
+    def _repl_diff(self, args: list[str]) -> None:
+        """Show git diff for files changed by a section: diff <section_id>."""
+        if not args:
+            click.echo("Usage: diff <section_id>")
+            return
+        section_id = args[0]
+
+        store = self._get_plan_store()
+        plan = store.load()
+        if plan is None:
+            click.echo("No plan found.")
+            return
+
+        section = _find_section_by_id(plan.sections, section_id)
+        if section is None:
+            click.echo(f"Section '{section_id}' not found.")
+            return
+
+        if section.worker_summary is None or not section.worker_summary.files_changed:
+            click.echo(f"Section '{section_id}' has no recorded file changes.")
+            return
+
+        files = section.worker_summary.files_changed
+        result = subprocess.run(
+            ["git", "diff", "--"] + files,
+            capture_output=True,
+            text=True,
+            cwd=str(self.current_dir),
+        )
+        output = result.stdout or result.stderr
+        if output:
+            click.echo(output)
+        else:
+            click.echo(
+                "(no diff — files may be untracked or unchanged in git)"
+            )
+
     # ── lazy orchestrator ──────────────────────────────────────────────────
 
     def _get_orchestrator(self) -> TPCAOrchestrator:
@@ -775,6 +1071,114 @@ def _coerce_value(raw: str, field_def) -> object:
     except ValueError:
         pass
     return raw
+
+
+# ── Phase F — plan rendering helpers ─────────────────────────────────────────
+
+_STATUS_GLYPHS = {
+    "COMPLETE":       "✓",
+    "IN_PROGRESS":    "⟳",
+    "PENDING":        "·",
+    "NEEDS_REVISION": "↺",
+    "BLOCKED":        "✗",
+    "EVALUATING":     "~",
+}
+
+
+def _find_section_by_id(
+    sections: list[PlanSection], section_id: str
+) -> Optional[PlanSection]:
+    """Recursively search plan sections by id. Returns None if not found."""
+    for section in sections:
+        if section.id == section_id:
+            return section
+        if section.sub_sections:
+            found = _find_section_by_id(section.sub_sections, section_id)
+            if found is not None:
+                return found
+    return None
+
+
+def _render_plan_tree(plan: SessionPlan) -> str:
+    """
+    Render a SessionPlan as a Unicode tree string.
+
+    Example output:
+      Session: "Add JWT auth" [EXECUTING] (13b-local)
+      ├── s1  Auth module             [COMPLETE] ✓  "Added validate_token"  tests:PASS
+      └── s2  Router integration      [PENDING] ·
+    """
+    lines: list[str] = []
+    preset = f" ({plan.model_preset})" if getattr(plan, "model_preset", None) else ""
+    lines.append(f'Session: "{plan.task}" [{plan.status}]{preset}')
+
+    def _section_line(section: PlanSection) -> str:
+        icon = _STATUS_GLYPHS.get(section.status, "?")
+        annotation = ""
+        if section.worker_summary:
+            ws = section.worker_summary
+            brief = ws.brief[:40] + "…" if len(ws.brief) > 40 else ws.brief
+            test_tag = ""
+            if ws.test_result:
+                label = "PASS" if ws.test_result == "PASS" else "FAIL"
+                test_tag = f"  tests:{label}"
+            annotation = f'  "{brief}"{test_tag}'
+        title = section.title[:32]
+        return (
+            f"{section.id:<8}  {title:<32}"
+            f"  [{section.status}] {icon}{annotation}"
+        )
+
+    def _render_sections(sections: list[PlanSection], prefix: str) -> None:
+        for i, section in enumerate(sections):
+            is_last = i == len(sections) - 1
+            connector = "└── " if is_last else "├── "
+            lines.append(prefix + connector + _section_line(section))
+            if section.sub_sections:
+                extension = "    " if is_last else "│   "
+                _render_sections(section.sub_sections, prefix + extension)
+
+    _render_sections(plan.sections, "")
+    return "\n".join(lines)
+
+
+def _render_summary_table(plan: SessionPlan) -> str:
+    """
+    Render all leaf section WorkerSummary entries as a compact table.
+
+    Example output:
+      ID        STATUS    BRIEF                                      TEST   CHANGED
+      s1        COMPLETE  Added validate_token to Auth class         PASS   src/auth.py
+      s2        PENDING   -                                          -      -
+    """
+    header = f"{'ID':<10}  {'STATUS':<14}  {'BRIEF':<44}  {'TEST':<6}  CHANGED"
+    sep = "─" * (len(header) + 6)
+    rows: list[str] = [header, sep]
+
+    for section in plan.all_leaf_sections():
+        sid = section.id
+        status = section.status
+        if section.worker_summary:
+            ws = section.worker_summary
+            brief = ws.brief[:44] if len(ws.brief) <= 44 else ws.brief[:41] + "…"
+            test = "PASS" if ws.test_result == "PASS" else (
+                "FAIL" if ws.test_result else "-"
+            )
+            if not ws.files_changed:
+                changed = "-"
+            elif len(ws.files_changed) == 1:
+                changed = ws.files_changed[0]
+            else:
+                changed = f"{ws.files_changed[0]} (+{len(ws.files_changed) - 1})"
+        else:
+            brief = "-"
+            test = "-"
+            changed = "-"
+        rows.append(
+            f"{sid:<10}  {status:<14}  {brief:<44}  {test:<6}  {changed}"
+        )
+
+    return "\n".join(rows)
 
 
 if __name__ == "__main__":

@@ -229,6 +229,106 @@ class TPCAOrchestrator:
             "manifest": result.manifest,
         }
 
+    def run_coding_session(
+        self,
+        source: str,
+        task: str,
+        resume: bool = False,
+    ) -> dict:
+        """
+        Execute the full coding-assistant pipeline for a task.
+
+        Pass 1 runs first (deterministic indexing + ranking), then a
+        SessionManager orchestrates planning → evaluation → worker dispatch.
+
+        Args:
+            source:  Path to source directory or file.
+            task:    Natural language task description.
+            resume:  If True, resume the existing plan from .tpca_plan.json
+                     instead of creating a new one.
+
+        Returns:
+            dict with keys:
+              - 'plan':      Completed SessionPlan dataclass.
+              - 'summaries': list[WorkerSummary] in completion order.
+              - 'stats':     Performance and section-completion metrics.
+              - 'index':     Compact Pass 1 index string.
+        """
+        import time as _time
+        from .tools.executor import ToolExecutor
+        from .plan.plan_store import PlanStore
+        from .session_manager import SessionManager
+
+        t_total = _time.time()
+        source_path = Path(source)
+        source_root = str(source_path if source_path.is_dir() else source_path.parent)
+
+        # ── Pass 1 ─────────────────────────────────────────────────────────────
+        t_pass1 = _time.time()
+        symbols = self._indexer.index(source)
+        graph = self._builder.build(symbols)
+        keywords = self._extract_keywords(task)
+        graph = self._ranker.rank_symbols(graph, keywords)
+        compact_index = self._renderer.render(graph)
+        pass1_ms = int((_time.time() - t_pass1) * 1000)
+
+        self._logger.info(
+            "coding_session_pass1_complete",
+            symbols=len(symbols),
+            pass1_ms=pass1_ms,
+        )
+
+        # ── Session setup ───────────────────────────────────────────────────────
+        executor = ToolExecutor(
+            project_root=source_root,
+            graph=graph,
+            index_text=compact_index,
+        )
+        plan_store = PlanStore(project_root=source_root)
+        session = SessionManager(
+            plan_store=plan_store,
+            llm=self._llm,
+            config=self._config,
+            graph=graph,
+            compact_index=compact_index,
+            project_root=source_root,
+        )
+
+        # ── Planning ────────────────────────────────────────────────────────────
+        if resume:
+            plan = session.resume_session()
+            if plan is None:
+                self._logger.warn(
+                    "coding_session_no_plan_to_resume",
+                    hint="No .tpca_plan.json found — starting fresh session",
+                )
+                plan = session.start_session(task)
+        else:
+            plan = session.start_session(task)
+
+        # ── Worker dispatch ─────────────────────────────────────────────────────
+        summaries = session.dispatch_workers(plan, executor)
+        total_ms = int((_time.time() - t_total) * 1000)
+
+        leaf_sections = plan.all_leaf_sections()
+        return {
+            "plan": plan,
+            "summaries": summaries,
+            "stats": {
+                "pass1_time_ms": pass1_ms,
+                "total_time_ms": total_ms,
+                "symbols_indexed": len(symbols),
+                "sections_total": len(leaf_sections),
+                "sections_complete": sum(
+                    1 for s in leaf_sections if s.status == "COMPLETE"
+                ),
+                "sections_failed": sum(
+                    1 for s in leaf_sections if s.status == "BLOCKED"
+                ),
+            },
+            "index": compact_index,
+        }
+
     def run_pass1_only(
         self,
         source: str,
@@ -299,6 +399,11 @@ class TPCAOrchestrator:
     def watcher(self) -> FileWatcher:
         """Expose the FileWatcher instance for REPL status queries."""
         return self._watcher
+
+    @property
+    def llm(self) -> LLMClient:
+        """Expose the LLMClient for external use (e.g. SessionManager construction)."""
+        return self._llm
 
     def _on_file_changed(self, path: str) -> None:
         """Callback invoked by FileWatcher on every source file change."""

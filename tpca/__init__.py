@@ -41,6 +41,24 @@ from .fallback.memory_store import AgentMemoryStore
 # Orchestrator
 from .orchestrator import TPCAOrchestrator
 
+# Phase D — Worker agents
+from .workers.worker_context import WorkerContext, WorkerContextBuilder
+from .workers.worker_agent import WorkerAgent
+from .workers.templates import TASK_TYPES, detect_task_type, get_template
+
+# Phase E — Session management
+from .session_manager import SessionManager
+from .plan.plan_store import PlanStore
+from .plan.plan_model import (
+    PlanEvaluation,
+    PlanSection,
+    SessionPlan,
+    WorkerSummary,
+)
+from .plan.planner_agent import PlannerAgent
+from .plan.sub_planner_agent import SubPlannerAgent
+from .plan.evaluator_agent import EvaluatorAgent
+
 __version__ = "2.0.0"
 
 __all__ = [
@@ -79,6 +97,23 @@ __all__ = [
     "AgentMemoryStore",
     # Orchestrator
     "TPCAOrchestrator",
+    # Phase D — Worker agents
+    "WorkerContext",
+    "WorkerContextBuilder",
+    "WorkerAgent",
+    "TASK_TYPES",
+    "detect_task_type",
+    "get_template",
+    # Phase E — Session management
+    "SessionManager",
+    "PlanStore",
+    "PlanEvaluation",
+    "PlanSection",
+    "SessionPlan",
+    "WorkerSummary",
+    "PlannerAgent",
+    "SubPlannerAgent",
+    "EvaluatorAgent",
 ]
 
 __version__ = "3.0.0"
