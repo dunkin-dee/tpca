@@ -12,23 +12,23 @@ import networkx as nx
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tpca.config import TPCAConfig
-from tpca.logging.log_config import LogConfig
-from tpca.logging.structured_logger import StructuredLogger
-from tpca.models.slice import Slice, SliceRequest
-from tpca.models.symbol import Symbol
-from tpca.pass2.context_planner import ContextPlanner
-from tpca.pass2.slice_fetcher import SliceFetcher
-from tpca.pass2.synthesis_agent import SynthesisAgent, SynthesisResult
-from tpca.llm.client import LLMClient, TokenCounter
+from prism.config import PRISMConfig
+from prism.logging.log_config import LogConfig
+from prism.logging.structured_logger import StructuredLogger
+from prism.models.slice import Slice, SliceRequest
+from prism.models.symbol import Symbol
+from prism.pass2.context_planner import ContextPlanner
+from prism.pass2.slice_fetcher import SliceFetcher
+from prism.pass2.synthesis_agent import SynthesisAgent, SynthesisResult
+from prism.llm.client import LLMClient, TokenCounter
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def make_config(output_mode="inline"):
-    return TPCAConfig(
+    return PRISMConfig(
         output_mode=output_mode,
-        output_dir="/tmp/tpca_test_output",
+        output_dir="/tmp/prism_test_output",
         max_synthesis_iterations=10,
         max_planner_retries=1,
         log=LogConfig(log_file="/dev/null", console_level="ERROR"),

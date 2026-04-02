@@ -11,18 +11,18 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tpca.config import TPCAConfig
-from tpca.logging.log_config import LogConfig
-from tpca.logging.structured_logger import StructuredLogger
-from tpca.models.slice import SliceRequest
-from tpca.pass2.context_planner import ContextPlanner
-from tpca.llm.client import LLMClient
+from prism.config import PRISMConfig
+from prism.logging.log_config import LogConfig
+from prism.logging.structured_logger import StructuredLogger
+from prism.models.slice import SliceRequest
+from prism.pass2.context_planner import ContextPlanner
+from prism.llm.client import LLMClient
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 def make_config():
-    return TPCAConfig(
+    return PRISMConfig(
         reader_model="claude-haiku-4-5-20251001",
         max_planner_retries=3,
         model_context_window=8192,

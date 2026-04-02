@@ -1,8 +1,8 @@
-# TPCA — Two-Pass Context Agent
+# PRISM — PageRank-indexed, Symbol-aware Model
 
 ## Project Overview
 
-TPCA is a Python library and CLI tool that analyzes and documents codebases within bounded LLM context windows. It solves the "too much code, too little context" problem via a two-pass pipeline:
+PRISM is a Python library and CLI tool that analyzes and documents codebases within bounded LLM context windows. It solves the "too much code, too little context" problem via a two-pass pipeline:
 
 - **Pass 1 (Deterministic)**: Tree-sitter AST parsing → NetworkX symbol graph → task-biased PageRank → compact text index. Zero LLM calls.
 - **Pass 2 (LLM-Driven)**: LLM acts as librarian to request symbols → token-budgeted slices fetched → synthesis loop with bounded working memory.
@@ -15,9 +15,9 @@ Current version: **3.0.0** (despite `__version__` showing 2.0.0 in `__init__.py`
 ## Repository Structure
 
 ```
-tpca/                        # Main package
-├── config.py                # TPCAConfig (single dataclass for all settings)
-├── orchestrator.py          # TPCAOrchestrator — top-level entry point
+prism/                        # Main package
+├── config.py                # PRISMConfig (single dataclass for all settings)
+├── orchestrator.py          # PRISMOrchestrator — top-level entry point
 ├── __init__.py              # Package exports
 │
 ├── pass1/                   # Phase 1: AST indexing (zero LLM)
@@ -111,12 +111,12 @@ python demo_phase3.py
 pytest tests/ -v
 
 # Run integration tests (requires API key)
-TPCA_RUN_INTEGRATION=1 pytest tests/ -m integration -v
+PRISM_RUN_INTEGRATION=1 pytest tests/ -m integration -v
 
 # CLI
-tpca run "document all public methods" --source ./src
-tpca index ./src
-tpca shell   # interactive REPL
+prism run "document all public methods" --source ./src
+prism index ./src
+prism shell   # interactive REPL
 ```
 
 ---
@@ -140,7 +140,7 @@ All token budgets use `tiktoken` (cl100k_base) with a 4-char-per-token fallback 
 - `per_symbol`: one file per symbol
 
 ### Resumability
-`OutputManifest` (JSON) tracks which files/symbols are complete. Pass `resume_manifest=path` to `TPCAConfig` to skip already-complete work.
+`OutputManifest` (JSON) tracks which files/symbols are complete. Pass `resume_manifest=path` to `PRISMConfig` to skip already-complete work.
 
 ### Fallback Pipeline
 When a relevant subgraph exceeds the context budget, `ChunkedFallback` is activated:
@@ -151,12 +151,12 @@ When a relevant subgraph exceeds the context budget, `ChunkedFallback` is activa
 
 ---
 
-## Configuration Reference (TPCAConfig)
+## Configuration Reference (PRISMConfig)
 
-All configuration lives in `TPCAConfig` (`tpca/config.py`). Key fields:
+All configuration lives in `PRISMConfig` (`prism/config.py`). Key fields:
 
 ```python
-TPCAConfig(
+PRISMConfig(
     # Languages
     languages=['python'],               # 'python' | 'javascript' | 'typescript'
 
@@ -173,12 +173,12 @@ TPCAConfig(
     top_n_symbols=50,
     pagerank_alpha=0.85,
     cache_enabled=True,
-    cache_dir='.tpca_cache',
+    cache_dir='.prism_cache',
     exclude_patterns=['__pycache__', '.git', 'venv'],
 
     # Output
     output_mode='inline',               # inline | single_file | mirror | per_symbol
-    output_dir='./tpca_output',
+    output_dir='./prism_output',
     max_synthesis_iterations=20,
 
     # Phase 3 fallback
@@ -215,7 +215,7 @@ ContextPlanner ──► SliceFetcher ──► SynthesisAgent (loop) ──► 
 ## Testing Conventions
 
 - All LLM calls are **mocked** in unit tests — no API key needed for `pytest tests/ -v`.
-- Integration tests are gated by `TPCA_RUN_INTEGRATION=1` env var.
+- Integration tests are gated by `PRISM_RUN_INTEGRATION=1` env var.
 - Test fixtures live in `tests/fixtures/` — do not modify them without updating affected tests.
 - Use `pytest-asyncio` for any async tests; mark with `@pytest.mark.asyncio`.
 
@@ -223,7 +223,7 @@ ContextPlanner ──► SliceFetcher ──► SynthesisAgent (loop) ──► 
 
 ## Important Notes
 
-- `__version__` is assigned twice in `tpca/__init__.py` (lines 7 and 84). The effective version is `"3.0.0"` (last assignment). This is a known inconsistency.
+- `__version__` is assigned twice in `prism/__init__.py` (lines 7 and 84). The effective version is `"3.0.0"` (last assignment). This is a known inconsistency.
 - Tree-sitter JS/TS parsers are optional — install `tree-sitter-javascript` and `tree-sitter-typescript` for Phase 3 multi-language support.
-- The `.tpca_cache/` directory is auto-created at runtime; it is git-ignored.
+- The `.prism_cache/` directory is auto-created at runtime; it is git-ignored.
 - `ANTHROPIC_API_KEY` env var is required for Anthropic provider; Ollama needs a running Ollama server.

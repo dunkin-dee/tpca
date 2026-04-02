@@ -12,20 +12,20 @@ from unittest.mock import MagicMock, patch, call
 
 import pytest
 
-from tpca.config import TPCAConfig
-from tpca.logging.log_config import LogConfig
-from tpca.logging.structured_logger import StructuredLogger
-from tpca.models.output import (
+from prism.config import PRISMConfig
+from prism.logging.log_config import LogConfig
+from prism.logging.structured_logger import StructuredLogger
+from prism.models.output import (
     OutputManifest, ManifestEntry, OutputLog, OutputChunk
 )
-from tpca.pass2.output_writer import OutputWriter
+from prism.pass2.output_writer import OutputWriter
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 @pytest.fixture
 def config(tmp_path):
-    return TPCAConfig(
+    return PRISMConfig(
         output_mode='single_file',
         output_dir=str(tmp_path / 'output'),
         cache_dir=str(tmp_path / 'cache'),
@@ -382,7 +382,7 @@ class TestOutputWriterModes:
         assert len(loaded.files) == 1
 
 
-# ── TPCAOrchestrator resume tests ─────────────────────────────────────────────
+# ── PRISMOrchestrator resume tests ─────────────────────────────────────────────
 
 class TestOrchestratorResume:
     """
@@ -392,8 +392,8 @@ class TestOrchestratorResume:
 
     @pytest.fixture
     def orchestrator(self, config):
-        from tpca.orchestrator import TPCAOrchestrator
-        return TPCAOrchestrator(config=config)
+        from prism.orchestrator import PRISMOrchestrator
+        return PRISMOrchestrator(config=config)
 
     def test_complete_symbols_from_manifest(self, orchestrator, tmp_path):
         m = OutputManifest(task='test')
@@ -463,13 +463,13 @@ class TestOrchestratorResume:
         assert len(keywords) <= 10
 
     def test_run_pass1_only_returns_expected_keys(self, tmp_path):
-        from tpca.orchestrator import TPCAOrchestrator
-        config = TPCAConfig(
+        from prism.orchestrator import PRISMOrchestrator
+        config = PRISMConfig(
             languages=['python'],
             cache_enabled=False,
             log=LogConfig(log_file='/dev/null', console_level='ERROR'),
         )
-        orch = TPCAOrchestrator(config=config)
+        orch = PRISMOrchestrator(config=config)
         fixture = Path(__file__).parent / 'fixtures' / 'sample_codebase'
         if not fixture.exists():
             pytest.skip('sample_codebase fixture not present')

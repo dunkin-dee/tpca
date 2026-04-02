@@ -1,6 +1,6 @@
-# TPCA — Two-Pass Context Agent
+# PRISM — PageRank-indexed, Symbol-aware Model
 
-AST-driven, graph-ranked context management for limited-window LLMs. TPCA solves the "too much code, too little context" problem and works in two modes:
+AST-driven, graph-ranked context management for limited-window LLMs. PRISM solves the "too much code, too little context" problem and works in two modes:
 
 - **Documentation mode** — generates documentation, summaries, or any text-based output for any codebase
 - **Coding assistant mode** — an interactive session that plans, executes, and tracks code changes across a project
@@ -13,7 +13,7 @@ Both modes work against local models (Ollama) by default, with cloud (Anthropic)
 
 ### Pass 1 — Deterministic Indexing (zero LLM)
 
-Every run starts here. TPCA parses your source files with Tree-sitter, builds a symbol relationship graph, runs task-biased PageRank, and renders a compact text index (~1–3K tokens for a 10K-line codebase). No LLM is involved; the result is fully deterministic and cached per file.
+Every run starts here. PRISM parses your source files with Tree-sitter, builds a symbol relationship graph, runs task-biased PageRank, and renders a compact text index (~1–3K tokens for a 10K-line codebase). No LLM is involved; the result is fully deterministic and cached per file.
 
 ### Pass 2 — LLM Synthesis
 
@@ -21,14 +21,14 @@ The compact index is handed to an LLM that selects which symbols to read in deta
 
 ### Coding Assistant
 
-On top of the two passes, TPCA has a full coding-session pipeline:
+On top of the two passes, PRISM has a full coding-session pipeline:
 
 1. A **PlannerAgent** breaks the task into scoped sections (one section ≈ one context window of work)
 2. An **EvaluatorAgent** scores and optionally splits over-budget sections
 3. **WorkerAgents** run a tool-call loop per section — reading files, writing diffs, running tests, and emitting a structured summary
 4. A **SessionManager** orchestrates the whole lifecycle, saves state after every section, and propagates interface-change notifications to downstream sections
 
-Sessions survive interruption: `.tpca_plan.json` in the project root captures the full plan state.
+Sessions survive interruption: `.prism_plan.json` in the project root captures the full plan state.
 
 ---
 
@@ -38,7 +38,7 @@ Sessions survive interruption: `.tpca_plan.json` in the project root captures th
 
 ```bash
 git clone <repo>
-cd tpca
+cd prism
 python -m venv venv
 source venv/Scripts/activate   # Windows: venv\Scripts\activate
 pip install -r requirements.txt
@@ -57,7 +57,7 @@ pip install tree-sitter-javascript tree-sitter-typescript
 
 ```bash
 ollama pull qwen2.5-coder:14b   # recommended for coding tasks
-# TPCA defaults to Ollama on http://localhost:11434/v1
+# PRISM defaults to Ollama on http://localhost:11434/v1
 ```
 
 ### Anthropic Claude
@@ -75,9 +75,9 @@ Use the `--preset cloud` flag or set `provider="anthropic"` in config to switch.
 ### Interactive REPL
 
 ```bash
-tpca repl                       # Ollama default
-tpca repl --preset cloud        # Anthropic Claude
-tpca repl --preset 13b-local    # explicit 13B local config
+prism repl                       # Ollama default
+prism repl --preset cloud        # Anthropic Claude
+prism repl --preset 13b-local    # explicit 13B local config
 ```
 
 The REPL is the primary interface. Commands:
@@ -116,25 +116,25 @@ Other:
 
 ```bash
 # Document all public methods in the current directory
-tpca run "Document every public method with parameters and return types."
+prism run "Document every public method with parameters and return types."
 
 # Index only (no LLM, useful for inspection)
-tpca index ./src
+prism index ./src
 
 # Mirror mode: outputs to docs/ mirroring the source tree
-tpca run "Summarise each module" --output-mode mirror --output-dir ./docs
+prism run "Summarise each module" --output-mode mirror --output-dir ./docs
 
 # Resume an interrupted run
-tpca run "..." --resume .tpca_cache/manifest.json
+prism run "..." --resume .prism_cache/manifest.json
 ```
 
 ### Coding Assistant — Library
 
 ```python
-from tpca import TPCAOrchestrator, TPCAConfig
+from prism import PRISMOrchestrator, PRISMConfig
 
-config = TPCAConfig.from_preset("13b-local")   # or "cloud", "7b-local"
-orchestrator = TPCAOrchestrator(config=config)
+config = PRISMConfig.from_preset("13b-local")   # or "cloud", "7b-local"
+orchestrator = PRISMOrchestrator(config=config)
 
 result = orchestrator.run_coding_session(
     source="./my_project/src",
@@ -155,15 +155,15 @@ result = orchestrator.run_coding_session(
 ### Documentation — Library
 
 ```python
-from tpca import TPCAOrchestrator, TPCAConfig
+from prism import PRISMOrchestrator, PRISMConfig
 
-config = TPCAConfig(
+config = PRISMConfig(
     provider="anthropic",
     synthesis_model="claude-sonnet-4-6",
     output_mode="mirror",
     output_dir="./docs",
 )
-orchestrator = TPCAOrchestrator(config=config)
+orchestrator = PRISMOrchestrator(config=config)
 result = orchestrator.run(
     source="./my_project/src",
     task="Document every public method with parameters and return types.",
@@ -175,20 +175,20 @@ print(result["stats"])  # compression_ratio, llm_calls, total_time_ms, ...
 
 ## Configuration
 
-All configuration lives in `TPCAConfig`. The easiest entry point is a named preset:
+All configuration lives in `PRISMConfig`. The easiest entry point is a named preset:
 
 ```python
-from tpca import TPCAConfig
+from prism import PRISMConfig
 
-config = TPCAConfig.from_preset("13b-local")   # Ollama, qwen2.5-coder:14b, 16K context
-config = TPCAConfig.from_preset("7b-local")    # Ollama, qwen2.5-coder:7b, 4K context
-config = TPCAConfig.from_preset("cloud")       # Anthropic, claude-sonnet-4-6, 32K context
+config = PRISMConfig.from_preset("13b-local")   # Ollama, qwen2.5-coder:14b, 16K context
+config = PRISMConfig.from_preset("7b-local")    # Ollama, qwen2.5-coder:7b, 4K context
+config = PRISMConfig.from_preset("cloud")       # Anthropic, claude-sonnet-4-6, 32K context
 ```
 
 Full reference:
 
 ```python
-TPCAConfig(
+PRISMConfig(
     # Languages
     languages=["python"],                       # "python" | "javascript" | "typescript"
 
@@ -209,12 +209,12 @@ TPCAConfig(
     top_n_symbols=50,
     pagerank_alpha=0.85,
     cache_enabled=True,
-    cache_dir=".tpca_cache",
+    cache_dir=".prism_cache",
     exclude_patterns=["__pycache__", ".git", "node_modules", "venv"],
 
     # Output (documentation mode)
     output_mode="inline",                      # inline | single_file | mirror | per_symbol
-    output_dir="./tpca_output",
+    output_dir="./prism_output",
     max_synthesis_iterations=20,
 
     # Coding sessions
@@ -227,7 +227,7 @@ TPCAConfig(
 
     # Logging
     log=LogConfig(
-        log_file=".tpca_cache/tpca.log",
+        log_file=".prism_cache/prism.log",
         console_level="WARN",                 # DEBUG | INFO | WARN | ERROR
     ),
 )
@@ -272,20 +272,20 @@ Each worker agent has access to 10 tools:
 
 `run_shell` and `run_tests` are restricted to the project root and a command allowlist (`pytest`, `python -m pytest`, `git status`, `git diff`, `npm test`, `cargo test`). No destructive shell commands are permitted.
 
-After every file-mutating tool call (`write_file`, `apply_diff`, `patch_file`), TPCA automatically runs the test suite on the changed files and appends the result to the tool output, giving the model an immediate self-correction signal.
+After every file-mutating tool call (`write_file`, `apply_diff`, `patch_file`), PRISM automatically runs the test suite on the changed files and appends the result to the tool output, giving the model an immediate self-correction signal.
 
 ### Plan persistence
 
-The active plan is saved to `.tpca_plan.json` in the project root after every section completes. Add it to `.gitignore` if you don't want to commit session state.
+The active plan is saved to `.prism_plan.json` in the project root after every section completes. Add it to `.gitignore` if you don't want to commit session state.
 
 ---
 
 ## Project Structure
 
 ```
-tpca/
-├── config.py                   # TPCAConfig — all settings in one dataclass
-├── orchestrator.py             # TPCAOrchestrator — top-level entry point
+prism/
+├── config.py                   # PRISMConfig — all settings in one dataclass
+├── orchestrator.py             # PRISMOrchestrator — top-level entry point
 ├── session_manager.py          # SessionManager — coding session lifecycle
 │
 ├── pass1/                      # Deterministic indexing
@@ -307,7 +307,7 @@ tpca/
 │
 ├── plan/                       # Coding session planning
 │   ├── plan_model.py           # PlanSection, SessionPlan, WorkerSummary
-│   ├── plan_store.py           # Atomic JSON persistence (.tpca_plan.json)
+│   ├── plan_store.py           # Atomic JSON persistence (.prism_plan.json)
 │   ├── planner_agent.py        # LLM-driven plan generation
 │   ├── sub_planner_agent.py    # Splits over-budget sections (max depth 3)
 │   └── evaluator_agent.py      # Scores sections and worker output
@@ -381,7 +381,7 @@ pytest tests/test_phase1.py tests/test_repl.py -v
 pytest tests/ -v -k "not JavaScript and not TypeScript"
 
 # Integration tests (requires API key or Ollama)
-TPCA_RUN_INTEGRATION=1 pytest tests/ -v -m integration
+PRISM_RUN_INTEGRATION=1 pytest tests/ -v -m integration
 ```
 
 ---

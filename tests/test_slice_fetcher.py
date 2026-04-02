@@ -11,13 +11,13 @@ import networkx as nx
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tpca.config import TPCAConfig
-from tpca.logging.log_config import LogConfig
-from tpca.logging.structured_logger import StructuredLogger
-from tpca.models.slice import Slice, SliceRequest
-from tpca.models.symbol import Symbol
-from tpca.pass2.slice_fetcher import SliceFetcher
-from tpca.llm.client import LLMClient, TokenCounter
+from prism.config import PRISMConfig
+from prism.logging.log_config import LogConfig
+from prism.logging.structured_logger import StructuredLogger
+from prism.models.slice import Slice, SliceRequest
+from prism.models.symbol import Symbol
+from prism.pass2.slice_fetcher import SliceFetcher
+from prism.llm.client import LLMClient, TokenCounter
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -29,7 +29,7 @@ def make_config(**kwargs):
         log=LogConfig(log_file="/dev/null", console_level="ERROR"),
     )
     defaults.update(kwargs)
-    return TPCAConfig(**defaults)
+    return PRISMConfig(**defaults)
 
 
 def make_logger(config):

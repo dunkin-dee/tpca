@@ -1,7 +1,7 @@
 .pytest_cache/
-.tpca_cache/
-.tpca_cache_phase3/
-tpca_phase3_output/
+.prism_cache/
+.prism_cache_phase3/
+prism_phase3_output/
 *.log
 
 __pycache__/
@@ -9,3 +9,5 @@ __pycache__/
 *$py.class
 
 venv/
+*.egg-info/
+*.docx

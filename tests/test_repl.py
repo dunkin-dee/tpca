@@ -14,12 +14,12 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tpca.config import TPCAConfig
-from tpca.logging.log_config import LogConfig
-from tpca.plan.plan_model import PlanEvaluation, PlanSection, SessionPlan, WorkerSummary
-from tpca.plan.plan_store import PlanStore
-from tpca.cli.main import (
-    TPCARepl,
+from prism.config import PRISMConfig
+from prism.logging.log_config import LogConfig
+from prism.plan.plan_model import PlanEvaluation, PlanSection, SessionPlan, WorkerSummary
+from prism.plan.plan_store import PlanStore
+from prism.cli.main import (
+    PRISMRepl,
     _find_section_by_id,
     _render_plan_tree,
     _render_summary_table,
@@ -29,7 +29,7 @@ from tpca.cli.main import (
 # ── Fixtures ───────────────────────────────────────────────────────────────────
 
 def make_config():
-    return TPCAConfig(
+    return PRISMConfig(
         provider="anthropic",
         synthesis_model="claude-sonnet-4-6",
         log=LogConfig(log_file="/dev/null", console_level="ERROR"),
@@ -104,9 +104,9 @@ def make_evaluation(recommendation="APPROVE"):
     )
 
 
-def make_repl(tmp_path) -> TPCARepl:
+def make_repl(tmp_path) -> PRISMRepl:
     config = make_config()
-    repl = TPCARepl(startup_dir=tmp_path, config=config)
+    repl = PRISMRepl(startup_dir=tmp_path, config=config)
     repl.current_dir = tmp_path
     return repl
 
@@ -318,7 +318,7 @@ class TestReplPlanNew:
         repl._compact_index = "## foo.py\ndef foo() [CORE]\n"  # pre-populated
         repl._graph = None
 
-        with patch("tpca.cli.main.SessionManager") as MockSM:
+        with patch("prism.cli.main.SessionManager") as MockSM:
             mock_sm = MagicMock()
             mock_sm.start_session.return_value = plan
             MockSM.return_value = mock_sm
@@ -349,7 +349,7 @@ class TestReplPlanNew:
         repl._graph = None
 
         with patch("builtins.input", return_value="y"):
-            with patch("tpca.cli.main.SessionManager") as MockSM:
+            with patch("prism.cli.main.SessionManager") as MockSM:
                 mock_sm = MagicMock()
                 mock_sm.start_session.return_value = plan
                 MockSM.return_value = mock_sm
@@ -419,11 +419,11 @@ class TestReplContinue:
 
         ws = make_worker_summary()
 
-        with patch("tpca.cli.main.SessionManager") as MockSM:
+        with patch("prism.cli.main.SessionManager") as MockSM:
             mock_sm = MagicMock()
             mock_sm.dispatch_workers.return_value = [ws]
             MockSM.return_value = mock_sm
-            with patch("tpca.cli.main.ToolExecutor"):
+            with patch("prism.cli.main.ToolExecutor"):
                 with patch.object(repl, "_get_orchestrator") as mock_orch:
                     mock_orch.return_value.llm = MagicMock()
                     repl._repl_continue([])
@@ -459,7 +459,7 @@ class TestReplEval:
         repl = make_repl(tmp_path)
         evaluation = make_evaluation(recommendation="APPROVE")
 
-        with patch("tpca.cli.main.SessionManager") as MockSM:
+        with patch("prism.cli.main.SessionManager") as MockSM:
             mock_sm = MagicMock()
             mock_sm._evaluator.evaluate_plan_section.return_value = evaluation
             MockSM.return_value = mock_sm
@@ -509,11 +509,11 @@ class TestReplRetry:
 
         ws = make_worker_summary()
 
-        with patch("tpca.cli.main.SessionManager") as MockSM:
+        with patch("prism.cli.main.SessionManager") as MockSM:
             mock_sm = MagicMock()
             mock_sm.dispatch_workers.return_value = [ws]
             MockSM.return_value = mock_sm
-            with patch("tpca.cli.main.ToolExecutor"):
+            with patch("prism.cli.main.ToolExecutor"):
                 with patch.object(repl, "_get_orchestrator") as mock_orch:
                     mock_orch.return_value.llm = MagicMock()
                     repl._repl_retry(["s1"])
@@ -526,7 +526,7 @@ class TestReplRetry:
 class TestReplTools:
     def test_prints_tool_descriptions(self, tmp_path, capsys):
         repl = make_repl(tmp_path)
-        with patch("tpca.cli.main.ToolExecutor") as MockExec:
+        with patch("prism.cli.main.ToolExecutor") as MockExec:
             mock_exec = MagicMock()
             mock_exec.get_descriptions.return_value = "read_file: read a file\nwrite_file: write a file"
             MockExec.return_value = mock_exec
@@ -589,7 +589,7 @@ class TestReplDiff:
         PlanStore(project_root=str(tmp_path)).save(plan)
 
         repl = make_repl(tmp_path)
-        with patch("tpca.cli.main.subprocess.run") as mock_run:
+        with patch("prism.cli.main.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(
                 stdout="--- a/src/auth.py\n+++ b/src/auth.py\n@@ -1 +1 @@\n",
                 stderr="",
@@ -611,7 +611,7 @@ class TestReplDiff:
         PlanStore(project_root=str(tmp_path)).save(plan)
 
         repl = make_repl(tmp_path)
-        with patch("tpca.cli.main.subprocess.run") as mock_run:
+        with patch("prism.cli.main.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(stdout="", stderr="")
             repl._repl_diff(["s1"])
 

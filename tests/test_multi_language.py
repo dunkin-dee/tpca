@@ -11,9 +11,9 @@ from __future__ import annotations
 import pytest
 from pathlib import Path
 
-from tpca.config import TPCAConfig
-from tpca.logging.log_config import LogConfig
-from tpca.logging.structured_logger import StructuredLogger
+from prism.config import PRISMConfig
+from prism.logging.log_config import LogConfig
+from prism.logging.structured_logger import StructuredLogger
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -34,16 +34,16 @@ except ImportError:
     pass
 
 
-def _make_config(languages: list[str]) -> TPCAConfig:
-    return TPCAConfig(
+def _make_config(languages: list[str]) -> PRISMConfig:
+    return PRISMConfig(
         languages=languages,
         cache_enabled=False,
         log=LogConfig(log_file='/dev/null', console_level='ERROR'),
     )
 
 
-def _make_indexer(config: TPCAConfig):
-    from tpca.pass1.ast_indexer import ASTIndexer
+def _make_indexer(config: PRISMConfig):
+    from prism.pass1.ast_indexer import ASTIndexer
     logger = StructuredLogger(config.log)
     return ASTIndexer(config, logger, cache=None)
 
@@ -51,7 +51,7 @@ def _make_indexer(config: TPCAConfig):
 # ── Language detection tests (no tree-sitter needed) ──────────────────────────
 
 class TestLanguageDetection:
-    """TPCAConfig.detect_language() must map extensions correctly."""
+    """PRISMConfig.detect_language() must map extensions correctly."""
 
     def test_python_extensions(self):
         config = _make_config(['python'])
@@ -195,7 +195,7 @@ class TestJavaScriptIndexing:
         assert any('utils.js' in f for f in files_seen)
 
     def test_graph_built_from_js_symbols(self):
-        from tpca.pass1.graph_builder import GraphBuilder
+        from prism.pass1.graph_builder import GraphBuilder
         config = _make_config(['javascript'])
         logger = StructuredLogger(config.log)
         indexer = _make_indexer(config)
@@ -208,8 +208,8 @@ class TestJavaScriptIndexing:
         assert graph.number_of_edges() >= 0
 
     def test_pagerank_runs_on_js_graph(self):
-        from tpca.pass1.graph_builder import GraphBuilder
-        from tpca.pass1.graph_ranker import GraphRanker
+        from prism.pass1.graph_builder import GraphBuilder
+        from prism.pass1.graph_ranker import GraphRanker
         config = _make_config(['javascript'])
         logger = StructuredLogger(config.log)
         indexer = _make_indexer(config)
@@ -225,9 +225,9 @@ class TestJavaScriptIndexing:
             assert ranked.nodes[node].get('pagerank', 0) >= 0
 
     def test_compact_index_generated_from_js(self):
-        from tpca.pass1.graph_builder import GraphBuilder
-        from tpca.pass1.graph_ranker import GraphRanker
-        from tpca.pass1.index_renderer import IndexRenderer
+        from prism.pass1.graph_builder import GraphBuilder
+        from prism.pass1.graph_ranker import GraphRanker
+        from prism.pass1.index_renderer import IndexRenderer
         config = _make_config(['javascript'])
         logger = StructuredLogger(config.log)
         indexer = _make_indexer(config)
@@ -353,7 +353,7 @@ export function Button({ label }: { label: string }) {
     def test_ts_and_python_in_same_run(self, tmp_path):
         config = _make_config(['python', 'typescript'])
         logger = StructuredLogger(config.log)
-        from tpca.pass1.ast_indexer import ASTIndexer
+        from prism.pass1.ast_indexer import ASTIndexer
         indexer = ASTIndexer(config, logger, cache=None)
 
         py_file = tmp_path / 'module.py'
@@ -383,7 +383,7 @@ class TestDirectoryWalk:
         (tmp_path / 'src' / 'main.js').write_text('function main() {}')
 
         logger = StructuredLogger(config.log)
-        from tpca.pass1.ast_indexer import ASTIndexer
+        from prism.pass1.ast_indexer import ASTIndexer
         indexer = ASTIndexer(config, logger, cache=None)
 
         paths = indexer._walk_directory(tmp_path)
@@ -397,7 +397,7 @@ class TestDirectoryWalk:
         (tmp_path / 'index.js').write_text('function main() {}')
 
         logger = StructuredLogger(config.log)
-        from tpca.pass1.ast_indexer import ASTIndexer
+        from prism.pass1.ast_indexer import ASTIndexer
         indexer = ASTIndexer(config, logger, cache=None)
 
         paths = indexer._walk_directory(tmp_path)
@@ -410,7 +410,7 @@ class TestDirectoryWalk:
         (tmp_path / 'helper.js').write_text('function help() {}')
 
         logger = StructuredLogger(config.log)
-        from tpca.pass1.ast_indexer import ASTIndexer
+        from prism.pass1.ast_indexer import ASTIndexer
         indexer = ASTIndexer(config, logger, cache=None)
 
         paths = indexer._walk_directory(tmp_path)
@@ -419,6 +419,6 @@ class TestDirectoryWalk:
     def test_returns_empty_for_empty_directory(self, tmp_path):
         config = _make_config(['python', 'javascript'])
         logger = StructuredLogger(config.log)
-        from tpca.pass1.ast_indexer import ASTIndexer
+        from prism.pass1.ast_indexer import ASTIndexer
         indexer = ASTIndexer(config, logger, cache=None)
         assert indexer._walk_directory(tmp_path) == []

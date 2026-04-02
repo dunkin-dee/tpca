@@ -10,20 +10,20 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tpca.config import TPCAConfig
-from tpca.logging.log_config import LogConfig
-from tpca.logging.structured_logger import StructuredLogger
-from tpca.models.output import OutputChunk
-from tpca.fallback.memory_store import AgentMemoryStore
-from tpca.fallback.reader_agent import ReaderAgent
-from tpca.fallback.chunked_pipeline import ChunkedFallback
+from prism.config import PRISMConfig
+from prism.logging.log_config import LogConfig
+from prism.logging.structured_logger import StructuredLogger
+from prism.models.output import OutputChunk
+from prism.fallback.memory_store import AgentMemoryStore
+from prism.fallback.reader_agent import ReaderAgent
+from prism.fallback.chunked_pipeline import ChunkedFallback
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 @pytest.fixture
 def config():
-    return TPCAConfig(
+    return PRISMConfig(
         fallback_chunk_tokens=500,
         fallback_overlap_tokens=50,
         log=LogConfig(log_file='/dev/null', console_level='ERROR'),
@@ -47,7 +47,7 @@ def mock_llm():
 
 
 def _make_symbol(sym_id: str, file: str, start: int = 0, end: int = 10, sig: str = ''):
-    from tpca.models.symbol import Symbol
+    from prism.models.symbol import Symbol
     name = sym_id.split('::')[-1]
     return Symbol(
         id=sym_id, type='function', name=name, qualified_name=name,
@@ -61,7 +61,7 @@ def _make_symbol(sym_id: str, file: str, start: int = 0, end: int = 10, sig: str
 class TestAgentMemoryStore:
     def test_extends_output_log(self):
         store = AgentMemoryStore()
-        from tpca.models.output import OutputLog
+        from prism.models.output import OutputLog
         assert isinstance(store, OutputLog)
 
     def test_add_extraction_creates_chunk(self):

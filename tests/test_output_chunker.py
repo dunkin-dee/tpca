@@ -11,19 +11,19 @@ import networkx as nx
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tpca.config import TPCAConfig
-from tpca.logging.log_config import LogConfig
-from tpca.logging.structured_logger import StructuredLogger
-from tpca.models.output import OutputLog, OutputChunk
-from tpca.models.slice import SliceRequest
-from tpca.models.chunk_plan import ChunkPlan
-from tpca.pass2.output_chunker import OutputChunker
+from prism.config import PRISMConfig
+from prism.logging.log_config import LogConfig
+from prism.logging.structured_logger import StructuredLogger
+from prism.models.output import OutputLog, OutputChunk
+from prism.models.slice import SliceRequest
+from prism.models.chunk_plan import ChunkPlan
+from prism.pass2.output_chunker import OutputChunker
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def make_config():
-    return TPCAConfig(
+    return PRISMConfig(
         log=LogConfig(log_file="/dev/null", console_level="ERROR"),
     )
 

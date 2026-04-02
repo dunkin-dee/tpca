@@ -2,7 +2,7 @@
 Tests for spec-compliance fixes applied post design-review.
 
 Covers all 11 changes made to bring the implementation in line with
-TPCA_Design_v2.docx:
+PRISM_Design_v2.docx:
 
 1.  Symbol.calls field present and defaults to []
 2.  IndexCache round-trips the calls field; gracefully handles old cache entries
@@ -15,7 +15,7 @@ TPCA_Design_v2.docx:
 9.  IndexRenderer renders CORE/SUPPORT constant symbols; suppresses PERIPHERAL
 10. IndexRenderer renders import symbols under an "imports:" block
 11. ContextPlanner emits planner_request (not planner_start / planner_success)
-12. TPCAConfig.output_mode defaults to 'single_file'
+12. PRISMConfig.output_mode defaults to 'single_file'
 13. Orchestrator.run() stats include raw_tokens_available
 """
 
@@ -30,18 +30,18 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tpca.config import TPCAConfig
-from tpca.logging.log_config import LogConfig
-from tpca.logging.structured_logger import StructuredLogger
-from tpca.models.symbol import Symbol
-from tpca.models.slice import SliceRequest
-from tpca.pass1.ast_indexer import ASTIndexer
-from tpca.pass1.graph_builder import GraphBuilder
-from tpca.pass1.graph_ranker import GraphRanker
-from tpca.pass1.index_renderer import IndexRenderer
-from tpca.cache.index_cache import IndexCache
-from tpca.pass2.context_planner import ContextPlanner
-from tpca.llm.client import LLMClient, TokenCounter
+from prism.config import PRISMConfig
+from prism.logging.log_config import LogConfig
+from prism.logging.structured_logger import StructuredLogger
+from prism.models.symbol import Symbol
+from prism.models.slice import SliceRequest
+from prism.pass1.ast_indexer import ASTIndexer
+from prism.pass1.graph_builder import GraphBuilder
+from prism.pass1.graph_ranker import GraphRanker
+from prism.pass1.index_renderer import IndexRenderer
+from prism.cache.index_cache import IndexCache
+from prism.pass2.context_planner import ContextPlanner
+from prism.llm.client import LLMClient, TokenCounter
 
 FIXTURES = Path(__file__).parent / "fixtures" / "sample_codebase"
 
@@ -54,7 +54,7 @@ def _logger(tmpdir=None):
 
 
 def _config(**kwargs):
-    return TPCAConfig(log=LogConfig(log_file="/dev/null", console_level="ERROR"), **kwargs)
+    return PRISMConfig(log=LogConfig(log_file="/dev/null", console_level="ERROR"), **kwargs)
 
 
 def _mock_llm():
@@ -633,18 +633,18 @@ class TestContextPlannerEvent:
         assert self.log.get_events("planner_success") == []
 
 
-# ── 12. TPCAConfig: output_mode default ───────────────────────────────────────
+# ── 12. PRISMConfig: output_mode default ───────────────────────────────────────
 
 class TestConfigDefaults:
     def test_output_mode_defaults_to_single_file(self):
-        assert TPCAConfig().output_mode == "single_file"
+        assert PRISMConfig().output_mode == "single_file"
 
     def test_output_mode_can_be_overridden(self):
-        cfg = TPCAConfig(output_mode="inline")
+        cfg = PRISMConfig(output_mode="inline")
         assert cfg.output_mode == "inline"
 
     def test_output_mode_mirror_accepted(self):
-        cfg = TPCAConfig(output_mode="mirror")
+        cfg = PRISMConfig(output_mode="mirror")
         assert cfg.output_mode == "mirror"
 
 
@@ -653,7 +653,7 @@ class TestConfigDefaults:
 class TestOrchestratorStats:
     def test_raw_tokens_available_in_run_stats(self):
         """run() stats must include raw_tokens_available (§ Appendix B)."""
-        from tpca.orchestrator import TPCAOrchestrator
+        from prism.orchestrator import PRISMOrchestrator
 
         with tempfile.TemporaryDirectory() as tmpdir:
             cfg = _config(
@@ -672,14 +672,14 @@ class TestOrchestratorStats:
             })
             synthesis_response = "Documentation.\n[TASK_COMPLETE]"
 
-            with patch("tpca.orchestrator.LLMClient") as MockLLM:
+            with patch("prism.orchestrator.LLMClient") as MockLLM:
                 mock_instance = MagicMock()
                 mock_instance.available = True
                 mock_instance.complete.side_effect = [plan_response, synthesis_response]
                 mock_instance.count_tokens.return_value = 10
                 MockLLM.return_value = mock_instance
 
-                orch = TPCAOrchestrator(config=cfg)
+                orch = PRISMOrchestrator(config=cfg)
                 result = orch.run(
                     source=str(FIXTURES),
                     task="document all methods",
@@ -690,7 +690,7 @@ class TestOrchestratorStats:
             assert result["stats"]["raw_tokens_available"] >= 0
 
     def test_raw_tokens_available_is_positive_for_nonempty_codebase(self):
-        from tpca.orchestrator import TPCAOrchestrator
+        from prism.orchestrator import PRISMOrchestrator
 
         with tempfile.TemporaryDirectory() as tmpdir:
             cfg = _config(
@@ -706,14 +706,14 @@ class TestOrchestratorStats:
                 "rationale": "nothing",
             })
 
-            with patch("tpca.orchestrator.LLMClient") as MockLLM:
+            with patch("prism.orchestrator.LLMClient") as MockLLM:
                 mock_instance = MagicMock()
                 mock_instance.available = True
                 mock_instance.complete.return_value = plan_response
                 mock_instance.count_tokens.return_value = 10
                 MockLLM.return_value = mock_instance
 
-                orch = TPCAOrchestrator(config=cfg)
+                orch = PRISMOrchestrator(config=cfg)
                 result = orch.run(
                     source=str(FIXTURES),
                     task="document all",

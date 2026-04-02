@@ -1,5 +1,5 @@
 """
-Example tests for TPCA Phase 1 components.
+Example tests for PRISM Phase 1 components.
 
 These tests demonstrate the testing approach for:
 - StructuredLogger
@@ -9,7 +9,7 @@ These tests demonstrate the testing approach for:
 - IndexRenderer
 - IndexCache
 
-Run with: pytest tpca/tests/
+Run with: pytest prism/tests/
 """
 
 import pytest
@@ -17,8 +17,8 @@ from pathlib import Path
 import tempfile
 import os
 
-from tpca import (
-    TPCAConfig,
+from prism import (
+    PRISMConfig,
     LogConfig,
     StructuredLogger,
     ASTIndexer,
@@ -79,7 +79,7 @@ class TestIndexCache:
     def test_cache_get_set(self):
         """Test basic cache get/set operations."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            config = TPCAConfig(
+            config = PRISMConfig(
                 cache_dir=tmpdir,
                 cache_enabled=True
             )
@@ -116,7 +116,7 @@ class TestIndexCache:
     def test_cache_invalidation_on_modification(self):
         """Test that cache is invalidated when file is modified."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            config = TPCAConfig(
+            config = PRISMConfig(
                 cache_dir=tmpdir,
                 cache_enabled=True
             )
@@ -158,11 +158,11 @@ class TestGraphRanker:
     
     def test_pagerank_assigns_scores(self):
         """Test that PageRank assigns scores to all symbols."""
-        config = TPCAConfig()
+        config = PRISMConfig()
         logger = StructuredLogger(config.log)
         
         # Create a simple graph
-        from tpca.models import SymbolGraph
+        from prism.models import SymbolGraph
         graph = SymbolGraph()
         
         # Add some nodes
@@ -193,10 +193,10 @@ class TestGraphRanker:
     
     def test_task_biased_ranking(self):
         """Test that task keywords bias the ranking."""
-        config = TPCAConfig()
+        config = PRISMConfig()
         logger = StructuredLogger(config.log)
         
-        from tpca.models import SymbolGraph
+        from prism.models import SymbolGraph
         graph = SymbolGraph()
         
         # Create symbols, one matching task keywords
@@ -245,11 +245,11 @@ class TestIndexRenderer:
     
     def test_renders_compact_index(self):
         """Test that renderer creates compact text output."""
-        config = TPCAConfig()
+        config = PRISMConfig()
         logger = StructuredLogger(config.log)
         renderer = IndexRenderer(config, logger)
         
-        from tpca.models import SymbolGraph
+        from prism.models import SymbolGraph
         graph = SymbolGraph()
         
         # Add a simple symbol
@@ -275,11 +275,11 @@ class TestIndexRenderer:
     
     def test_compact_summary(self):
         """Test compact summary generation."""
-        config = TPCAConfig()
+        config = PRISMConfig()
         logger = StructuredLogger(config.log)
         renderer = IndexRenderer(config, logger)
         
-        from tpca.models import SymbolGraph
+        from prism.models import SymbolGraph
         graph = SymbolGraph()
         
         # Add some symbols

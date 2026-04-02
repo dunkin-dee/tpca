@@ -14,17 +14,17 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tpca.config import TPCAConfig
-from tpca.logging.log_config import LogConfig
-from tpca.plan.plan_model import PlanEvaluation, PlanSection, SessionPlan, WorkerSummary
-from tpca.plan.plan_store import PlanStore
-from tpca.session_manager import SessionManager, _partition_by_file_independence, _flag_dependents
+from prism.config import PRISMConfig
+from prism.logging.log_config import LogConfig
+from prism.plan.plan_model import PlanEvaluation, PlanSection, SessionPlan, WorkerSummary
+from prism.plan.plan_store import PlanStore
+from prism.session_manager import SessionManager, _partition_by_file_independence, _flag_dependents
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def make_config():
-    return TPCAConfig(
+    return PRISMConfig(
         provider="anthropic",
         synthesis_model="claude-sonnet-4-6",
         log=LogConfig(log_file="/dev/null", console_level="ERROR"),
@@ -243,7 +243,7 @@ class TestDispatchWorkers:
 
         summary = make_worker_summary("s1")
 
-        with patch("tpca.session_manager.WorkerAgent") as MockAgent:
+        with patch("prism.session_manager.WorkerAgent") as MockAgent:
             MockAgent.return_value = self._make_worker_mock(summary)
             with patch.object(sm._ctx_builder, "build", return_value=MagicMock()):
                 all_summaries = sm.dispatch_workers(plan, mock_executor)
@@ -263,7 +263,7 @@ class TestDispatchWorkers:
 
         summary = make_worker_summary("s1", status="PARTIAL")
 
-        with patch("tpca.session_manager.WorkerAgent") as MockAgent:
+        with patch("prism.session_manager.WorkerAgent") as MockAgent:
             MockAgent.return_value = self._make_worker_mock(summary)
             with patch.object(sm._ctx_builder, "build", return_value=MagicMock()):
                 sm.dispatch_workers(plan, mock_executor)
@@ -286,7 +286,7 @@ class TestDispatchWorkers:
 
         sm._store.save = track_save
 
-        with patch("tpca.session_manager.WorkerAgent") as MockAgent:
+        with patch("prism.session_manager.WorkerAgent") as MockAgent:
             MockAgent.return_value = self._make_worker_mock(
                 make_worker_summary("s1")
             )
@@ -320,7 +320,7 @@ class TestDispatchWorkers:
                 mock.run.return_value = make_worker_summary("s2")
             return mock
 
-        with patch("tpca.session_manager.WorkerAgent", side_effect=worker_side_effect):
+        with patch("prism.session_manager.WorkerAgent", side_effect=worker_side_effect):
             with patch.object(sm._ctx_builder, "build", return_value=MagicMock()):
                 sm.dispatch_workers(plan, mock_executor)
 
@@ -343,7 +343,7 @@ class TestStartSession:
 
         sm._planner.plan.assert_called_once()
         assert result.status == "EXECUTING"
-        assert (tmp_path / ".tpca_plan.json").exists()
+        assert (tmp_path / ".prism_plan.json").exists()
 
     def test_resume_returns_stored_plan(self, tmp_path):
         sm = make_session_manager(tmp_path)

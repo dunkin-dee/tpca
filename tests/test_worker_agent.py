@@ -13,20 +13,20 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tpca.config import TPCAConfig
-from tpca.logging.log_config import LogConfig
-from tpca.logging.structured_logger import StructuredLogger
-from tpca.plan.plan_model import PlanSection, SessionPlan, WorkerSummary
-from tpca.tools.executor import ToolExecutor, ToolResult
-from tpca.workers.templates import detect_task_type, get_template, TASK_TYPES
-from tpca.workers.worker_context import WorkerContextBuilder, _extract_file_sections
-from tpca.workers.worker_agent import WorkerAgent, _TestAwareExecutor
+from prism.config import PRISMConfig
+from prism.logging.log_config import LogConfig
+from prism.logging.structured_logger import StructuredLogger
+from prism.plan.plan_model import PlanSection, SessionPlan, WorkerSummary
+from prism.tools.executor import ToolExecutor, ToolResult
+from prism.workers.templates import detect_task_type, get_template, TASK_TYPES
+from prism.workers.worker_context import WorkerContextBuilder, _extract_file_sections
+from prism.workers.worker_agent import WorkerAgent, _TestAwareExecutor
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 def make_config():
-    return TPCAConfig(
+    return PRISMConfig(
         provider="anthropic",
         synthesis_model="claude-sonnet-4-6",
         log=LogConfig(log_file="/dev/null", console_level="ERROR"),
@@ -45,7 +45,7 @@ def make_section(
         id=id,
         title=title,
         description=description,
-        scope_files=scope_files or ["tpca/foo.py"],
+        scope_files=scope_files or ["prism/foo.py"],
         scope_symbols=scope_symbols or ["foo.py::foo"],
     )
 
@@ -357,7 +357,7 @@ class TestWorkerAgent:
         section = make_section()
         plan = make_plan()
 
-        from tpca.workers.worker_context import WorkerContext
+        from prism.workers.worker_context import WorkerContext
         ctx = WorkerContext(
             section=section,
             global_prefix="",
@@ -373,7 +373,7 @@ class TestWorkerAgent:
         )
 
         # Patch _TestAwareExecutor to pass through the mock
-        with patch("tpca.workers.worker_agent._TestAwareExecutor") as MockWrapper:
+        with patch("prism.workers.worker_agent._TestAwareExecutor") as MockWrapper:
             MockWrapper.return_value = executor
             agent = WorkerAgent(section=section, context=ctx, llm=llm,
                                 executor=executor, config=config)
@@ -388,7 +388,7 @@ class TestWorkerAgent:
         section = make_section()
         plan = make_plan()
 
-        from tpca.workers.worker_context import WorkerContext
+        from prism.workers.worker_context import WorkerContext
         ctx = WorkerContext(
             section=section,
             global_prefix="",
@@ -404,7 +404,7 @@ class TestWorkerAgent:
         ]
         llm = self._make_llm(tool_calls=tool_calls, final_text="Work done.")
 
-        with patch("tpca.workers.worker_agent._TestAwareExecutor") as MockWrapper:
+        with patch("prism.workers.worker_agent._TestAwareExecutor") as MockWrapper:
             MockWrapper.return_value = executor
             agent = WorkerAgent(section=section, context=ctx, llm=llm,
                                 executor=executor, config=config)

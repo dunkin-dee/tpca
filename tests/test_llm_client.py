@@ -10,14 +10,14 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tpca.config import TPCAConfig
-from tpca.logging.log_config import LogConfig
-from tpca.logging.structured_logger import StructuredLogger
-from tpca.llm.client import LLMClient, TokenCounter
+from prism.config import PRISMConfig
+from prism.logging.log_config import LogConfig
+from prism.logging.structured_logger import StructuredLogger
+from prism.llm.client import LLMClient, TokenCounter
 
 
 def make_config():
-    return TPCAConfig(
+    return PRISMConfig(
         provider="anthropic",
         synthesis_model="claude-sonnet-4-6",
         tokenizer="cl100k_base",

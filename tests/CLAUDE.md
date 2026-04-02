@@ -11,7 +11,7 @@ pytest tests/test_phase1.py -v
 pytest tests/test_fallback.py -v
 
 # Integration tests (requires ANTHROPIC_API_KEY)
-TPCA_RUN_INTEGRATION=1 pytest tests/ -m integration -v
+PRISM_RUN_INTEGRATION=1 pytest tests/ -m integration -v
 ```
 
 ## Test Files
@@ -44,7 +44,7 @@ tests/fixtures/
 ## Conventions
 
 - **Mock LLM calls** at the `LLMClient.complete()` level. Tests should not hit real APIs.
-- **Integration tests** are marked `@pytest.mark.integration` and gated by `TPCA_RUN_INTEGRATION=1`.
+- **Integration tests** are marked `@pytest.mark.integration` and gated by `PRISM_RUN_INTEGRATION=1`.
 - Use `@pytest.mark.asyncio` for any async test functions.
 - Token counts in tests use the same `TokenCounter` as production code — do not hardcode character-based estimates.
 - When adding a new Pass 1 feature, add tests to `test_phase1.py`. For Pass 2, add to the appropriate `test_*.py` file.

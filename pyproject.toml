@@ -3,9 +3,9 @@
    build-backend = "setuptools.build_meta"
 
    [project]
-   name = "tpca"
+   name = "prism"
    version = "0.1.0.dev1"
-   description = "Two-Pass Context Agent - AST-Driven, Graph-Ranked Context Retrieval"
+   description = "PageRank-indexed, Symbol-aware Model - AST-Driven, Graph-Ranked Context Retrieval"
    requires-python = ">=3.8"
    dependencies = [
        "tree-sitter>=0.20.0",
@@ -20,11 +20,11 @@
    ]
 
    [project.scripts]
-   tpca = "tpca.cli.main:main"
+   prism = "prism.cli.main:main"
 
    [tool.setuptools.packages.find]
    where = ["."]
-   include = ["tpca*"]
+   include = ["prism*"]
    exclude = ["tests*"]
 
    [tool.pytest.ini_options]
