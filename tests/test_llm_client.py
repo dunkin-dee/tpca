@@ -18,6 +18,7 @@ from tpca.llm.client import LLMClient, TokenCounter
 
 def make_config():
     return TPCAConfig(
+        provider="anthropic",
         synthesis_model="claude-sonnet-4-6",
         tokenizer="cl100k_base",
         log=LogConfig(log_file="/dev/null", console_level="ERROR"),

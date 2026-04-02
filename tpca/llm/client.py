@@ -7,8 +7,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
-from typing import Optional, Any
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    from ..tools.executor import ToolExecutor
 
 # tiktoken for accurate token counting
 try:
@@ -192,9 +196,330 @@ class LLMClient:
             f"LLM call failed after {max_retries} attempts: {last_error}"
         ) from last_error
 
+    def complete_with_tools(
+        self,
+        messages: list[dict],
+        tools: list[dict],
+        executor: "ToolExecutor",
+        model: Optional[str] = None,
+        system: Optional[str] = None,
+        max_tokens: int = 4096,
+        max_tool_rounds: int = 20,
+    ) -> tuple[str, list[dict]]:
+        """
+        Tool-calling loop: call LLM → execute tool calls → inject results → repeat.
+
+        Args:
+            messages:        Initial conversation messages.
+            tools:           Generic tool schemas:
+                             [{"name": str, "description": str, "parameters": dict}]
+            executor:        ToolExecutor instance to execute tool calls.
+            model:           Model override (defaults to active_synthesis_model).
+            system:          System prompt.
+            max_tokens:      Max tokens per LLM call.
+            max_tool_rounds: Hard cap on tool-call iterations.
+
+        Returns:
+            (final_text, all_tool_calls) where all_tool_calls is a list of
+            {"tool_name": str, "args": dict, "result": str} dicts.
+        """
+        from .capability import detect_capabilities
+
+        model = model or self._config.active_synthesis_model
+        provider = getattr(self._config, "provider", "anthropic")
+        caps = detect_capabilities(model, provider)
+
+        if caps.supports_tool_calls:
+            if provider == "anthropic":
+                return self._tool_loop_anthropic(
+                    messages, tools, executor, model, system,
+                    max_tokens, max_tool_rounds,
+                )
+            else:
+                return self._tool_loop_openai(
+                    messages, tools, executor, model, system,
+                    max_tokens, max_tool_rounds,
+                )
+        else:
+            return self._tool_loop_json_fallback(
+                messages, tools, executor, model, system,
+                max_tokens, max_tool_rounds,
+            )
+
+    # ── Native tool-call loops ────────────────────────────────────────────────
+
+    def _tool_loop_anthropic(
+        self,
+        messages: list[dict],
+        tools: list[dict],
+        executor: "ToolExecutor",
+        model: str,
+        system: Optional[str],
+        max_tokens: int,
+        max_rounds: int,
+    ) -> tuple[str, list[dict]]:
+        anthropic_tools = [
+            {
+                "name": t["name"],
+                "description": t["description"],
+                "input_schema": t["parameters"],
+            }
+            for t in tools
+        ]
+
+        current_messages = list(messages)
+        all_tool_calls: list[dict] = []
+
+        for _ in range(max_rounds):
+            kwargs: dict = dict(
+                model=model,
+                max_tokens=max_tokens,
+                messages=current_messages,
+                tools=anthropic_tools,
+            )
+            if system:
+                kwargs["system"] = system
+
+            response = self._client.messages.create(**kwargs)
+
+            tool_use_blocks = [
+                b for b in response.content
+                if getattr(b, "type", None) == "tool_use"
+            ]
+            text_blocks = [
+                b for b in response.content
+                if getattr(b, "type", None) == "text"
+            ]
+
+            if not tool_use_blocks:
+                final_text = text_blocks[0].text if text_blocks else ""
+                return final_text, all_tool_calls
+
+            # Append assistant message (preserve all content blocks as dicts)
+            current_messages.append({
+                "role": "assistant",
+                "content": [_content_block_to_dict(b) for b in response.content],
+            })
+
+            # Execute each tool call and collect results
+            tool_results = []
+            for block in tool_use_blocks:
+                result = executor.execute(block.name, block.input)
+                result_text = result.to_str()
+                all_tool_calls.append({
+                    "tool_name": block.name,
+                    "args": block.input,
+                    "result": result_text,
+                })
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": block.id,
+                    "content": result_text,
+                })
+
+            current_messages.append({"role": "user", "content": tool_results})
+
+        return f"(stopped after {max_rounds} tool rounds)", all_tool_calls
+
+    def _tool_loop_openai(
+        self,
+        messages: list[dict],
+        tools: list[dict],
+        executor: "ToolExecutor",
+        model: str,
+        system: Optional[str],
+        max_tokens: int,
+        max_rounds: int,
+    ) -> tuple[str, list[dict]]:
+        openai_tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": t["name"],
+                    "description": t["description"],
+                    "parameters": t["parameters"],
+                },
+            }
+            for t in tools
+        ]
+
+        all_messages = list(messages)
+        if system:
+            all_messages = [{"role": "system", "content": system}] + all_messages
+
+        all_tool_calls: list[dict] = []
+
+        for _ in range(max_rounds):
+            response = self._client.chat.completions.create(
+                model=model,
+                messages=all_messages,
+                tools=openai_tools,
+                tool_choice="auto",
+                max_tokens=max_tokens,
+            )
+
+            msg = response.choices[0].message
+            tc = msg.tool_calls
+
+            if not tc:
+                return msg.content or "", all_tool_calls
+
+            # Append assistant message with tool_calls
+            all_messages.append({
+                "role": "assistant",
+                "content": msg.content,
+                "tool_calls": [
+                    {
+                        "id": c.id,
+                        "type": "function",
+                        "function": {
+                            "name": c.function.name,
+                            "arguments": c.function.arguments,
+                        },
+                    }
+                    for c in tc
+                ],
+            })
+
+            # Execute each tool call
+            for call in tc:
+                try:
+                    args = json.loads(call.function.arguments)
+                except json.JSONDecodeError:
+                    args = {}
+
+                result = executor.execute(call.function.name, args)
+                result_text = result.to_str()
+                all_tool_calls.append({
+                    "tool_name": call.function.name,
+                    "args": args,
+                    "result": result_text,
+                })
+                all_messages.append({
+                    "role": "tool",
+                    "tool_call_id": call.id,
+                    "content": result_text,
+                })
+
+        return f"(stopped after {max_rounds} tool rounds)", all_tool_calls
+
+    # ── JSON fallback loop (models without native tool calls) ─────────────────
+
+    def _tool_loop_json_fallback(
+        self,
+        messages: list[dict],
+        tools: list[dict],
+        executor: "ToolExecutor",
+        model: str,
+        system: Optional[str],
+        max_tokens: int,
+        max_rounds: int,
+    ) -> tuple[str, list[dict]]:
+        tool_desc = _build_tool_descriptions(tools)
+        fallback_system = (
+            (system.rstrip() + "\n\n" if system else "")
+            + tool_desc
+            + "\n\n"
+            "To use a tool, output ONLY a JSON block (no preamble):\n"
+            '{"tool": "<name>", "args": {<params>}}\n'
+            "After seeing the result, continue your work. "
+            "Call write_summary when done."
+        )
+
+        current_messages = list(messages)
+        all_tool_calls: list[dict] = []
+
+        for _ in range(max_rounds):
+            text = self.complete(
+                messages=current_messages,
+                model=model,
+                system=fallback_system,
+                max_tokens=max_tokens,
+            )
+
+            call = _extract_json_tool_call(text)
+            if call is None:
+                return text, all_tool_calls
+
+            tool_name = call.get("tool", "")
+            args = call.get("args", {})
+
+            result = executor.execute(tool_name, args)
+            result_text = result.to_str()
+            all_tool_calls.append({
+                "tool_name": tool_name,
+                "args": args,
+                "result": result_text,
+            })
+
+            current_messages.append({"role": "assistant", "content": text})
+            current_messages.append({
+                "role": "user",
+                "content": f"Tool result:\n{result_text}",
+            })
+
+        return f"(stopped after {max_rounds} tool rounds)", all_tool_calls
+
     def count_tokens(self, text: str) -> int:
         return self.token_counter.count(text)
 
     @property
     def available(self) -> bool:
         return self._client is not None
+
+
+# ── Module-level helpers ──────────────────────────────────────────────────────
+
+def _content_block_to_dict(block: Any) -> dict:
+    """Convert an Anthropic SDK content block object to a plain dict."""
+    btype = getattr(block, "type", None)
+    if btype == "text":
+        return {"type": "text", "text": block.text}
+    if btype == "tool_use":
+        return {
+            "type": "tool_use",
+            "id": block.id,
+            "name": block.name,
+            "input": block.input,
+        }
+    return {"type": btype or "unknown"}
+
+
+def _build_tool_descriptions(tools: list[dict]) -> str:
+    """Build compact text description of tools for JSON-fallback models."""
+    lines = ['Available tools — call with: {"tool": "<name>", "args": {...}}\n']
+    for t in tools:
+        props = t.get("parameters", {}).get("properties", {})
+        required = t.get("parameters", {}).get("required", [])
+        param_parts = []
+        for pname, pschema in props.items():
+            ptype = pschema.get("type", "any")
+            suffix = "" if pname in required else "?"
+            param_parts.append(f"{pname}{suffix}:{ptype}")
+        params = ", ".join(param_parts)
+        lines.append(f"  {t['name']}({params}) — {t['description']}")
+    return "\n".join(lines)
+
+
+def _extract_json_tool_call(text: str) -> Optional[dict]:
+    """
+    Extract {"tool": ..., "args": ...} from an LLM response.
+    Handles markdown code fences and bare JSON objects.
+    """
+    # Try ```json ... ``` fence first
+    m = re.search(r"```(?:json)?\s*(\{[\s\S]+?\})\s*```", text)
+    if m:
+        try:
+            return json.loads(m.group(1))
+        except json.JSONDecodeError:
+            pass
+
+    # Try bare JSON object containing "tool" key
+    m = re.search(r'\{\s*"tool"\s*:[\s\S]+?\}', text)
+    if m:
+        try:
+            return json.loads(m.group(0))
+        except json.JSONDecodeError:
+            pass
+
+    return None

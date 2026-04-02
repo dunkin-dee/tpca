@@ -41,6 +41,7 @@ from .llm.client import LLMClient
 from .pass2.context_planner import ContextPlanner
 from .pass2.slice_fetcher import SliceFetcher
 from .pass2.synthesis_agent import SynthesisAgent, SynthesisResult
+from .watch.file_watcher import FileWatcher
 
 
 class TPCAOrchestrator:
@@ -83,11 +84,17 @@ class TPCAOrchestrator:
             except ImportError:
                 pass  # fallback module not yet available — non-fatal
 
+        # File watcher (started on demand via start_watching())
+        self._watcher = FileWatcher(
+            exclude_patterns=self._config.exclude_patterns,
+        )
+
         self._logger.info(
             "orchestrator_init",
             output_mode=self._config.output_mode,
             synthesis_model=self._config.synthesis_model,
             llm_available=self._llm.available,
+            watcher_available=self._watcher.available,
         )
 
     # ── Public API ─────────────────────────────────────────────────────────────
@@ -250,6 +257,53 @@ class TPCAOrchestrator:
                 "graph_edges": graph.number_of_edges(),
             },
         }
+
+    # ── File watching ──────────────────────────────────────────────────────────
+
+    def start_watching(self, source: str) -> bool:
+        """
+        Start watching *source* for file changes.
+
+        When a source file is modified the file's AST cache entry is
+        invalidated so the next run() / run_pass1_only() call re-parses it.
+
+        Args:
+            source: Path to the directory (or a file inside it) to watch.
+
+        Returns:
+            True if the watcher started successfully, False if watchdog is
+            not installed or the path does not exist.
+        """
+        source_path = Path(source)
+        watch_dir = source_path if source_path.is_dir() else source_path.parent
+        if not watch_dir.exists():
+            self._logger.warn("watcher_bad_path", path=str(watch_dir))
+            return False
+        started = self._watcher.start(str(watch_dir), self._on_file_changed)
+        if started:
+            self._logger.info("watcher_started", directory=str(watch_dir))
+        else:
+            self._logger.warn(
+                "watcher_unavailable",
+                hint="pip install watchdog",
+            )
+        return started
+
+    def stop_watching(self) -> None:
+        """Stop the file watcher if running."""
+        if self._watcher.running:
+            self._watcher.stop()
+            self._logger.info("watcher_stopped")
+
+    @property
+    def watcher(self) -> FileWatcher:
+        """Expose the FileWatcher instance for REPL status queries."""
+        return self._watcher
+
+    def _on_file_changed(self, path: str) -> None:
+        """Callback invoked by FileWatcher on every source file change."""
+        self._cache.invalidate(path)
+        self._logger.info("file_changed", path=path, action="cache_invalidated")
 
     # ── Helpers ────────────────────────────────────────────────────────────────
 

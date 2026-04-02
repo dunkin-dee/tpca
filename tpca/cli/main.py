@@ -32,6 +32,7 @@ _COMMANDS = [
     "ls", "tree", "cat", "pwd", "cd",
     "run", "index", "stats",
     "config", "set",
+    "watch",
     "shell", "help", "version", "exit", "quit",
 ]
 _PATH_CMDS = {"ls", "tree", "cat", "cd", "index"}
@@ -51,6 +52,7 @@ TPCA operations:
   run <task>         Run full pipeline on current directory
   index [path]       Run Pass 1 only and show compact index
   stats              Show stats from the last operation
+  watch              Show file watcher status
 
 Configuration:
   config             Show current configuration
@@ -70,24 +72,43 @@ Other:
 # ── Config factory ─────────────────────────────────────────────────────────────
 
 def _build_config(
+    preset: Optional[str] = None,
     provider: Optional[str] = None,
     model: Optional[str] = None,
     reader_model: Optional[str] = None,
+    ollama_url: Optional[str] = None,
     output_mode: Optional[str] = None,
     output_dir: Optional[str] = None,
     languages: Optional[str] = None,
     no_cache: bool = False,
     verbose: bool = False,
 ) -> TPCAConfig:
-    """Map CLI options to TPCAConfig."""
-    kwargs: dict = {}
+    """Map CLI options to TPCAConfig. Preset is applied first; explicit flags override it."""
+    # Start from preset or bare defaults
+    if preset:
+        try:
+            config = TPCAConfig.from_preset(preset)
+        except ValueError as exc:
+            raise click.BadParameter(str(exc), param_hint="--preset")
+        kwargs: dict = {}
+    else:
+        config = None
+        kwargs = {}
 
     if provider:
         kwargs["provider"] = provider
     if model:
-        kwargs["synthesis_model"] = model
+        if config and config.provider == "ollama":
+            kwargs["ollama_synthesis_model"] = model
+        else:
+            kwargs["synthesis_model"] = model
     if reader_model:
-        kwargs["reader_model"] = reader_model
+        if config and config.provider == "ollama":
+            kwargs["ollama_reader_model"] = reader_model
+        else:
+            kwargs["reader_model"] = reader_model
+    if ollama_url:
+        kwargs["ollama_base_url"] = ollama_url
     if output_mode:
         kwargs["output_mode"] = output_mode
     if output_dir:
@@ -100,6 +121,10 @@ def _build_config(
     log_level = "DEBUG" if verbose else "WARN"
     kwargs["log"] = LogConfig(console_level=log_level)
 
+    if config is not None:
+        for k, v in kwargs.items():
+            setattr(config, k, v)
+        return config
     return TPCAConfig(**kwargs)
 
 
@@ -170,9 +195,15 @@ def main(ctx: click.Context) -> None:
 @main.command()
 @click.argument("task")
 @click.option("--source", default=".", show_default=True, help="Source path to index.")
+@click.option(
+    "--preset",
+    type=click.Choice(["13b-local", "7b-local", "cloud"]),
+    help="Config preset (13b-local, 7b-local, cloud).",
+)
 @click.option("--provider", type=click.Choice(["anthropic", "ollama"]), help="LLM provider.")
 @click.option("--model", help="Synthesis model name.")
 @click.option("--reader-model", help="Reader/planner model name.")
+@click.option("--ollama-url", help="Ollama base URL (default: http://localhost:11434/v1).")
 @click.option(
     "--output-mode",
     type=click.Choice(["inline", "single_file", "mirror", "per_symbol"]),
@@ -187,9 +218,11 @@ def main(ctx: click.Context) -> None:
 def run(
     task: str,
     source: str,
+    preset: Optional[str],
     provider: Optional[str],
     model: Optional[str],
     reader_model: Optional[str],
+    ollama_url: Optional[str],
     output_mode: Optional[str],
     output_dir: Optional[str],
     budget: Optional[int],
@@ -200,9 +233,11 @@ def run(
 ) -> None:
     """Run the full TPCA pipeline for TASK on SOURCE."""
     config = _build_config(
+        preset=preset,
         provider=provider,
         model=model,
         reader_model=reader_model,
+        ollama_url=ollama_url,
         output_mode=output_mode,
         output_dir=output_dir,
         languages=languages,
@@ -251,9 +286,16 @@ def index_cmd(
 
 
 @main.command()
-def repl() -> None:
+@click.option(
+    "--preset",
+    type=click.Choice(["13b-local", "7b-local", "cloud"]),
+    help="Config preset (13b-local, 7b-local, cloud).",
+)
+@click.option("--ollama-url", help="Ollama base URL (default: http://localhost:11434/v1).")
+def repl(preset: Optional[str], ollama_url: Optional[str]) -> None:
     """Start an interactive TPCA session."""
-    _launch_repl(TPCAConfig())
+    config = _build_config(preset=preset, ollama_url=ollama_url)
+    _launch_repl(config)
 
 
 # ── REPL ──────────────────────────────────────────────────────────────────────
@@ -262,8 +304,13 @@ def _launch_repl(config: TPCAConfig) -> None:
     startup_dir = Path(os.getcwd()).resolve()
     click.echo(f"TPCA {TPCA_VERSION}  —  interactive session")
     click.echo(f"Root: {startup_dir}")
-    click.echo('Type "help" for commands, Ctrl+D or "exit" to quit.\n')
+    click.echo(f"Preset: {config.provider} / {config.active_synthesis_model}")
+    click.echo('Type "help" for commands, Ctrl+D or "exit" to quit.')
     session = TPCARepl(startup_dir=startup_dir, config=config)
+    # Probe Ollama connectivity when provider is ollama
+    if config.provider == "ollama":
+        session._check_ollama()
+    click.echo()
     session.cmdloop()
 
 
@@ -379,6 +426,7 @@ class TPCARepl:
             "run":     self._repl_run,
             "index":   self._repl_index,
             "stats":   self._repl_stats,
+            "watch":   self._repl_watch,
             "config":  self._repl_config,
             "set":     self._repl_set,
             "shell":   self._repl_shell_cmd,
@@ -486,6 +534,7 @@ class TPCARepl:
             return
         task = " ".join(args)
         orch = self._get_orchestrator()
+        orch.start_watching(str(self.current_dir))
         click.echo(f"Running: {task}\n")
         try:
             result = orch.run(
@@ -508,6 +557,7 @@ class TPCARepl:
             click.echo(str(exc))
             return
         orch = self._get_orchestrator()
+        orch.start_watching(str(target))
         result = orch.run_pass1_only(source=str(target), task_keywords=None)
         self._last_stats = result.get("stats")
         click.echo(result["index"])
@@ -520,6 +570,52 @@ class TPCARepl:
             click.echo("No stats yet — run 'run' or 'index' first.")
             return
         _print_stats(self._last_stats)
+
+    # ── watch ──────────────────────────────────────────────────────────────
+
+    def _repl_watch(self, _args: list[str]) -> None:
+        """Show file watcher status."""
+        if self._orchestrator is None:
+            click.echo("Watcher: not started  (run 'index' or 'run' to activate)")
+            return
+        click.echo(f"Watcher: {self._orchestrator.watcher.status_line()}")
+
+    # ── Ollama health check ────────────────────────────────────────────────
+
+    def _check_ollama(self) -> None:
+        """Probe Ollama connectivity and list available models."""
+        import json
+        import urllib.request
+        import urllib.error
+
+        base = self.config.ollama_base_url.rstrip("/")
+        if base.endswith("/v1"):
+            base = base[:-3]
+        url = base + "/api/tags"
+
+        try:
+            with urllib.request.urlopen(url, timeout=3) as resp:
+                data = json.loads(resp.read())
+            models = [m["name"] for m in data.get("models", [])]
+            click.echo(f"Ollama: connected — {len(models)} model(s) available")
+            if models:
+                shown = models[:6]
+                suffix = f"  (+{len(models) - 6} more)" if len(models) > 6 else ""
+                click.echo("  " + "  ".join(shown) + suffix)
+            current = self.config.active_synthesis_model
+            if models and current not in models:
+                click.echo(
+                    f"  [!] configured model '{current}' not found locally"
+                    f" — run: ollama pull {current}"
+                )
+        except urllib.error.URLError:
+            click.echo(f"Ollama: not reachable at {base}")
+            click.echo(
+                "  Start Ollama, or change the URL with:  "
+                "set ollama_base_url http://<host>:11434/v1"
+            )
+        except Exception as exc:
+            click.echo(f"Ollama: probe failed ({exc})")
 
     # ── config ─────────────────────────────────────────────────────────────
 
@@ -563,7 +659,9 @@ class TPCARepl:
             return
 
         setattr(self.config, key, value)
-        self._orchestrator = None  # invalidate so next op picks up new config
+        if self._orchestrator is not None:
+            self._orchestrator.stop_watching()
+            self._orchestrator = None  # invalidate so next op picks up new config
         click.echo(f"Set {key} = {value!r}")
 
     # ── shell passthrough ──────────────────────────────────────────────────
