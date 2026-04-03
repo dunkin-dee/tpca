@@ -82,6 +82,7 @@ class SubPlannerAgent:
                     model=self._config.active_reader_model,
                     system=system,
                     max_tokens=1024,
+                    purpose="sub_planner",
                 )
                 data = _parse_json(raw)
                 subs = [

@@ -115,6 +115,7 @@ class ContextPlanner:
             messages=messages,
             model=self._config.active_reader_model,
             max_tokens=1024,
+            purpose="context_planner",
         )
 
         request = self._parse_response(response_text)
@@ -156,6 +157,7 @@ class ContextPlanner:
                 messages=messages,
                 model=self._config.active_reader_model,
                 max_tokens=1024,
+                purpose="context_planner:retry",
             )
             request = self._parse_response(response_text)
 

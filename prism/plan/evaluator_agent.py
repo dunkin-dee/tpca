@@ -104,7 +104,7 @@ class EvaluatorAgent:
             f"Estimated tokens: {section.estimated_tokens}\n"
             f"Budget per section: {budget}\n"
         )
-        return self._call(_PLAN_EVAL_SYSTEM, user)
+        return self._call(_PLAN_EVAL_SYSTEM, user, purpose=f"eval:plan:{section.id}")
 
     def evaluate_worker(
         self, section: PlanSection, summary: WorkerSummary
@@ -121,11 +121,11 @@ class EvaluatorAgent:
             f"Assumptions: {summary.assumptions}\n"
             f"Blockers: {summary.blockers}\n"
         )
-        return self._call(_WORKER_EVAL_SYSTEM, user)
+        return self._call(_WORKER_EVAL_SYSTEM, user, purpose=f"eval:worker:{section.id}")
 
     # ── Internal ──────────────────────────────────────────────────────────────
 
-    def _call(self, system: str, user: str) -> PlanEvaluation:
+    def _call(self, system: str, user: str, purpose: str = "evaluator") -> PlanEvaluation:
         last_err: Optional[Exception] = None
         for attempt in range(self._config.max_planner_retries):
             try:
@@ -134,6 +134,7 @@ class EvaluatorAgent:
                     model=self._config.active_reader_model,
                     system=system,
                     max_tokens=512,
+                    purpose=purpose,
                 )
                 data = _parse_json(raw)
                 return PlanEvaluation.from_dict(data)

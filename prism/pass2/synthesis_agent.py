@@ -189,6 +189,7 @@ class SynthesisAgent:
                     messages=[{"role": "user", "content": prompt}],
                     model=self._config.active_synthesis_model,
                     max_tokens=4096,
+                    purpose=f"synthesis:{plan.symbol_id}",
                 )
                 llm_calls += 1
 

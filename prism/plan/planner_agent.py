@@ -95,6 +95,7 @@ class PlannerAgent:
                     model=self._config.active_reader_model,
                     system=system,
                     max_tokens=2048,
+                    purpose="planner",
                 )
                 data = _parse_json(raw)
                 sections = data.get("sections", [])

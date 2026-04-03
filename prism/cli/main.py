@@ -99,6 +99,7 @@ def _build_config(
     languages: Optional[str] = None,
     no_cache: bool = False,
     verbose: bool = False,
+    debug_llm: bool = False,
 ) -> PRISMConfig:
     """Map CLI options to PRISMConfig. Preset is applied first; explicit flags override it."""
     # Start from preset or bare defaults
@@ -136,7 +137,7 @@ def _build_config(
         kwargs["cache_enabled"] = False
 
     log_level = "DEBUG" if verbose else "WARN"
-    kwargs["log"] = LogConfig(console_level=log_level)
+    kwargs["log"] = LogConfig(console_level=log_level, include_prompt_text=debug_llm)
 
     if config is not None:
         for k, v in kwargs.items():
@@ -232,6 +233,7 @@ def main(ctx: click.Context) -> None:
 @click.option("--resume", default=None, help="Path to a manifest.json from a prior interrupted run.")
 @click.option("--no-cache", is_flag=True, help="Disable the AST index cache.")
 @click.option("--verbose", is_flag=True, help="Show detailed orchestrator logs.")
+@click.option("--debug-llm", is_flag=True, help="Print full LLM input/output to stderr.")
 def run(
     task: str,
     source: str,
@@ -247,6 +249,7 @@ def run(
     resume: Optional[str],
     no_cache: bool,
     verbose: bool,
+    debug_llm: bool,
 ) -> None:
     """Run the full PRISM pipeline for TASK on SOURCE."""
     config = _build_config(
@@ -260,6 +263,7 @@ def run(
         languages=languages,
         no_cache=no_cache,
         verbose=verbose,
+        debug_llm=debug_llm,
     )
     orchestrator = PRISMOrchestrator(config=config)
     click.echo(f"Source : {source}")
@@ -673,6 +677,11 @@ class PRISMRepl:
         if key == "resume":
             self._resume = raw
             click.echo(f"Set resume = {self._resume!r}")
+            return
+        if key == "debug_llm":
+            val = raw.lower() in ("1", "true", "yes", "on")
+            self.config.log.include_prompt_text = val
+            click.echo(f"Set debug_llm = {val}")
             return
 
         valid = {f.name: f for f in dc_fields(self.config)}

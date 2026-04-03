@@ -88,6 +88,36 @@ class LLMClient:
         self.token_counter = TokenCounter(config.tokenizer)
         self._client = self._build_client()
 
+    @property
+    def _debug(self) -> bool:
+        return getattr(getattr(self._config, "log", None), "include_prompt_text", False)
+
+    def _debug_io(self, direction: str, purpose: str, model: str, content: str) -> None:
+        """Print full LLM I/O to stderr. Only called when debug mode is on."""
+        import sys
+        bar = "─" * 72
+        tag = f"[LLM {direction}] {purpose}  |  {model}"
+        print(f"\n{bar}\n{tag}\n{bar}", file=sys.stderr)
+        print(content, file=sys.stderr)
+        print(bar, file=sys.stderr, flush=True)
+
+    @staticmethod
+    def _format_messages(system: Optional[str], messages: list[dict]) -> str:
+        parts = []
+        if system:
+            parts.append(f"SYSTEM:\n{system}")
+        for msg in messages:
+            role = msg.get("role", "?").upper()
+            content = msg.get("content", "")
+            if isinstance(content, list):
+                text_parts = [
+                    b.get("text", repr(b)) for b in content
+                    if isinstance(b, dict) and b.get("type") == "text"
+                ]
+                content = "\n".join(text_parts)
+            parts.append(f"{role}:\n{content}")
+        return "\n\n".join(parts)
+
     def _build_client(self):
         provider = getattr(self._config, "provider", "anthropic")
 
@@ -119,6 +149,7 @@ class LLMClient:
         temperature: float = 0.2,
         max_retries: int = 3,
         retry_delay: float = 2.0,
+        purpose: str = "",
     ) -> str:
         """
         Call the LLM and return the text response.
@@ -136,10 +167,14 @@ class LLMClient:
         prompt_tokens = self.token_counter.count_messages(messages)
         self._logger.info(
             "llm_call_start",
+            purpose=purpose or "unknown",
             model=model,
             prompt_tokens=prompt_tokens,
             max_tokens=max_tokens,
         )
+        if self._debug:
+            self._debug_io("IN", purpose or "unknown", model,
+                           self._format_messages(system, messages))
 
         last_error = None
         for attempt in range(max_retries):
@@ -171,6 +206,8 @@ class LLMClient:
                     model=model,
                     prompt_tokens=prompt_tokens
                 )
+                if self._debug:
+                    self._debug_io("OUT", purpose or "unknown", model, text)
                 return text
 
             except Exception as e:
@@ -205,6 +242,7 @@ class LLMClient:
         system: Optional[str] = None,
         max_tokens: int = 4096,
         max_tool_rounds: int = 20,
+        purpose: str = "",
     ) -> tuple[str, list[dict]]:
         """
         Tool-calling loop: call LLM → execute tool calls → inject results → repeat.
@@ -233,17 +271,17 @@ class LLMClient:
             if provider == "anthropic":
                 return self._tool_loop_anthropic(
                     messages, tools, executor, model, system,
-                    max_tokens, max_tool_rounds,
+                    max_tokens, max_tool_rounds, purpose,
                 )
             else:
                 return self._tool_loop_openai(
                     messages, tools, executor, model, system,
-                    max_tokens, max_tool_rounds,
+                    max_tokens, max_tool_rounds, purpose,
                 )
         else:
             return self._tool_loop_json_fallback(
                 messages, tools, executor, model, system,
-                max_tokens, max_tool_rounds,
+                max_tokens, max_tool_rounds, purpose,
             )
 
     # ── Native tool-call loops ────────────────────────────────────────────────
@@ -257,6 +295,7 @@ class LLMClient:
         system: Optional[str],
         max_tokens: int,
         max_rounds: int,
+        purpose: str = "",
     ) -> tuple[str, list[dict]]:
         anthropic_tools = [
             {
@@ -270,7 +309,18 @@ class LLMClient:
         current_messages = list(messages)
         all_tool_calls: list[dict] = []
 
-        for _ in range(max_rounds):
+        for round_num in range(max_rounds):
+            self._logger.info(
+                "llm_call_start",
+                purpose=purpose or "unknown",
+                model=model,
+                prompt_tokens=self.token_counter.count_messages(current_messages),
+                max_tokens=max_tokens,
+                tool_round=round_num,
+            )
+            if self._debug:
+                self._debug_io(f"IN round={round_num}", purpose or "unknown", model,
+                               self._format_messages(system, current_messages))
             kwargs: dict = dict(
                 model=model,
                 max_tokens=max_tokens,
@@ -293,7 +343,18 @@ class LLMClient:
 
             if not tool_use_blocks:
                 final_text = text_blocks[0].text if text_blocks else ""
+                if self._debug:
+                    self._debug_io(f"OUT round={round_num} (final)", purpose or "unknown",
+                                   model, final_text)
                 return final_text, all_tool_calls
+
+            if self._debug:
+                tool_summary = "\n".join(
+                    f"  TOOL_CALL: {b.name}({json.dumps(b.input)})"
+                    for b in tool_use_blocks
+                )
+                self._debug_io(f"OUT round={round_num} (tools)", purpose or "unknown",
+                               model, tool_summary)
 
             # Append assistant message (preserve all content blocks as dicts)
             current_messages.append({
@@ -311,6 +372,9 @@ class LLMClient:
                     "args": block.input,
                     "result": result_text,
                 })
+                if self._debug:
+                    self._debug_io(f"TOOL_RESULT {block.name}", purpose or "unknown",
+                                   model, result_text)
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": block.id,
@@ -330,6 +394,7 @@ class LLMClient:
         system: Optional[str],
         max_tokens: int,
         max_rounds: int,
+        purpose: str = "",
     ) -> tuple[str, list[dict]]:
         openai_tools = [
             {
@@ -349,7 +414,18 @@ class LLMClient:
 
         all_tool_calls: list[dict] = []
 
-        for _ in range(max_rounds):
+        for round_num in range(max_rounds):
+            self._logger.info(
+                "llm_call_start",
+                purpose=purpose or "unknown",
+                model=model,
+                prompt_tokens=self.token_counter.count_messages(all_messages),
+                max_tokens=max_tokens,
+                tool_round=round_num,
+            )
+            if self._debug:
+                self._debug_io(f"IN round={round_num}", purpose or "unknown", model,
+                               self._format_messages(None, all_messages))
             response = self._client.chat.completions.create(
                 model=model,
                 messages=all_messages,
@@ -362,7 +438,18 @@ class LLMClient:
             tc = msg.tool_calls
 
             if not tc:
+                if self._debug:
+                    self._debug_io(f"OUT round={round_num} (final)", purpose or "unknown",
+                                   model, msg.content or "")
                 return msg.content or "", all_tool_calls
+
+            if self._debug:
+                tool_summary = "\n".join(
+                    f"  TOOL_CALL: {c.function.name}({c.function.arguments})"
+                    for c in tc
+                )
+                self._debug_io(f"OUT round={round_num} (tools)", purpose or "unknown",
+                               model, tool_summary)
 
             # Append assistant message with tool_calls
             all_messages.append({
@@ -395,6 +482,9 @@ class LLMClient:
                     "args": args,
                     "result": result_text,
                 })
+                if self._debug:
+                    self._debug_io(f"TOOL_RESULT {call.function.name}",
+                                   purpose or "unknown", model, result_text)
                 all_messages.append({
                     "role": "tool",
                     "tool_call_id": call.id,
@@ -414,6 +504,7 @@ class LLMClient:
         system: Optional[str],
         max_tokens: int,
         max_rounds: int,
+        purpose: str = "",
     ) -> tuple[str, list[dict]]:
         tool_desc = _build_tool_descriptions(tools)
         fallback_system = (
@@ -435,6 +526,7 @@ class LLMClient:
                 model=model,
                 system=fallback_system,
                 max_tokens=max_tokens,
+                purpose=purpose,
             )
 
             call = _extract_json_tool_call(text)

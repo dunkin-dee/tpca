@@ -86,6 +86,17 @@
       return_type: (type_annotation)? @function.return_type
       body: (_) @function.body)))
 
+; Exported arrow functions (e.g. export const Foo = () => {}, dominant Vite pattern)
+(export_statement
+  declaration: (lexical_declaration
+    (variable_declarator
+      name: (identifier) @function.name
+      type: (type_annotation)? @function.type_annotation
+      value: (arrow_function
+        parameters: (formal_parameters) @function.params
+        return_type: (type_annotation)? @function.return_type
+        body: (_) @function.body))))
+
 ; ── Import / export statements ────────────────────────────────────────────────
 (import_statement
   source: (string) @import.source)

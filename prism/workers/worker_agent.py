@@ -124,6 +124,7 @@ class WorkerAgent:
             system=system,
             max_tokens=4096,
             max_tool_rounds=self._config.max_tool_rounds,
+            purpose=f"worker:{self._section.id} {self._section.title}",
         )
 
         return self._extract_summary(all_tool_calls, _final_text)

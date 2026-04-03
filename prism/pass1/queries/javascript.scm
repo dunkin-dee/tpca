@@ -59,6 +59,23 @@
     parameters: (formal_parameters) @function.params
     body: (statement_block) @function.body))
 
+; Exported arrow functions / function expressions (e.g. export const Foo = () => {})
+(export_statement
+  declaration: (lexical_declaration
+    (variable_declarator
+      name: (identifier) @function.name
+      value: (arrow_function
+        parameters: (formal_parameters) @function.params
+        body: (_) @function.body))))
+
+(export_statement
+  declaration: (lexical_declaration
+    (variable_declarator
+      name: (identifier) @function.name
+      value: (function_expression
+        parameters: (formal_parameters) @function.params
+        body: (statement_block) @function.body))))
+
 ; Exported class declarations
 (export_statement
   declaration: (class_declaration

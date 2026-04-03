@@ -108,9 +108,10 @@ class ReaderAgent:
         t0 = time.monotonic()
         try:
             raw = self._llm.complete(
-                prompt=prompt,
+                messages=[{"role": "user", "content": prompt}],
                 model=self._config.active_reader_model,
                 max_tokens=512,
+                purpose=f"fallback_reader:chunk{self._chunk_index + 1}/{self._total_chunks}",
             )
         except Exception as exc:
             self._logger.error(
